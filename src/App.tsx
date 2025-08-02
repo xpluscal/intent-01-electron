@@ -28,7 +28,7 @@ function SignInForm() {
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="flex flex-col gap-8 w-96 mx-auto p-8">
         <div className="text-center">
-          <h1 className="text-3xl font-bold mb-2">Intent Workspace</h1>
+          <h1 className="text-3xl font-bold mb-2 uppercase">Intent-01</h1>
           <p className="text-muted-foreground">Sign in to access your workspace</p>
         </div>
         <SignInButton mode="modal">

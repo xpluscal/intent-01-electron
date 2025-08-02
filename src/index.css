@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "./styles/prosemirror.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -138,4 +139,9 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+
+
+.cm-editor {
+  @apply min-h-full;
 }

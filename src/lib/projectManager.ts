@@ -201,6 +201,96 @@ export class ProjectManager {
     return Object.values(metadata.projects)
   }
 
+  // Get all references (both assigned and unassigned)
+  async getAllReferences(): Promise<Reference[]> {
+    const refs: Reference[] = []
+    
+    try {
+      // Get all reference directories
+      const refDirs = await window.intentAPI.listFiles('refs')
+      
+      for (const refDir of refDirs) {
+        if (refDir.type === 'directory') {
+          const metadata = await this.loadRefMetadata(refDir.name)
+          if (metadata) {
+            refs.push(metadata.reference)
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load references:', error)
+    }
+    
+    return refs
+  }
+
+  // Get unassigned references (not in any project)
+  async getUnassignedReferences(): Promise<Reference[]> {
+    const [allRefs, projects] = await Promise.all([
+      this.getAllReferences(),
+      this.getAllProjects()
+    ])
+    
+    // Get all reference IDs that are assigned to projects
+    const assignedRefIds = new Set<string>()
+    projects.forEach(project => {
+      project.refs.forEach(refId => assignedRefIds.add(refId))
+    })
+    
+    // Filter out assigned references
+    return allRefs.filter(ref => !assignedRefIds.has(ref.id))
+  }
+
+  // Update project
+  async updateProject(projectId: string, updates: { name?: string; description?: string }): Promise<void> {
+    const projects = await this.loadProjects()
+    const project = projects.projects[projectId]
+    
+    if (!project) {
+      throw new Error(`Project ${projectId} not found`)
+    }
+    
+    if (updates.name !== undefined) {
+      project.name = updates.name
+    }
+    if (updates.description !== undefined) {
+      project.description = updates.description
+    }
+    
+    project.modified = new Date()
+    await this.saveProjects(projects)
+  }
+
+  // Update reference
+  async updateReference(refId: string, updates: { 
+    name?: string; 
+    description?: string;
+    type?: ReferenceType;
+    subtype?: ReferenceSubtype;
+  }): Promise<void> {
+    const metadata = await this.loadRefMetadata(refId)
+    
+    if (!metadata) {
+      throw new Error(`Reference ${refId} not found`)
+    }
+    
+    if (updates.name !== undefined) {
+      metadata.reference.name = updates.name
+    }
+    if (updates.description !== undefined) {
+      metadata.reference.description = updates.description
+    }
+    if (updates.type !== undefined) {
+      metadata.reference.type = updates.type
+    }
+    if (updates.subtype !== undefined) {
+      metadata.reference.subtype = updates.subtype
+    }
+    
+    metadata.reference.modified = new Date()
+    await this.saveRefMetadata(refId, metadata)
+  }
+
   // Helper to generate ID from name
   private generateId(name: string): string {
     return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')

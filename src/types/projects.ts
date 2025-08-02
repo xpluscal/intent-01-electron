@@ -64,5 +64,7 @@ export interface ProjectFileNode {
     created: Date
     modified: Date
     description?: string
+    refType?: ReferenceType
+    refSubtype?: ReferenceSubtype
   }
 }

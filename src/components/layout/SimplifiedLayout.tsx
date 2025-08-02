@@ -16,7 +16,7 @@ export function SimplifiedLayout({ children }: SimplifiedLayoutProps) {
       {/* Top Navigation */}
       <header className="h-14 border-b flex items-center justify-between px-4">
         <div className="flex items-center gap-4">
-          <h1 className="text-lg font-semibold">Intent Workspace</h1>
+          <h1 className="text-lg font-semibold uppercase">Intent - 01</h1>
         </div>
         
         <div className="flex items-center gap-2">

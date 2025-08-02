@@ -13,11 +13,11 @@ export function AppLayout({ children }: AppLayoutProps) {
       <Header />
       <div className="flex-1 overflow-hidden">
         <ResizablePanelGroup direction="horizontal">
-          <ResizablePanel defaultSize={15} minSize={10} maxSize={25}>
+          <ResizablePanel defaultSize={10} minSize={10} maxSize={25}>
             <Sidebar />
           </ResizablePanel>
           <ResizableHandle />
-          <ResizablePanel defaultSize={85}>
+          <ResizablePanel defaultSize={90}>
             <main className="h-full overflow-auto bg-background">
               {children}
             </main>

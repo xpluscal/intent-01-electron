@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { ChevronRight, ChevronDown, File, Folder, Briefcase, Bookmark, BookOpen, Loader2, Package } from 'lucide-react'
+import { ChevronRight, ChevronDown, File, Folder, Briefcase, Bookmark, BookOpen, Loader2, Package, FileText, Image, Code, Type, FolderOpen } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '../ui/button'
 import { Badge } from '../ui/badge'
@@ -18,6 +18,7 @@ interface ProjectFileTreeProps {
   onRefresh?: () => void
   onCreateReference?: (projectId?: string) => void
   onMoveReference?: (refId: string, targetProjectId: string) => Promise<void>
+  onOpenArtifactView?: (refId: string, artifactType: string) => void
 }
 
 export function ProjectFileTree({ 
@@ -28,7 +29,8 @@ export function ProjectFileTree({
   loading = false,
   onRefresh,
   onCreateReference,
-  onMoveReference
+  onMoveReference,
+  onOpenArtifactView
 }: ProjectFileTreeProps) {
   const [fileTree, setFileTree] = useState<ProjectFileNode[]>([])
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set())
@@ -36,6 +38,7 @@ export function ProjectFileTree({
   const [projectRefs, setProjectRefs] = useState<Map<string, Reference[]>>(new Map())
   const [draggedNode, setDraggedNode] = useState<ProjectFileNode | null>(null)
   const [dragOverNode, setDragOverNode] = useState<string | null>(null)
+  const [unassignedRefs, setUnassignedRefs] = useState<Reference[]>([])
 
   useEffect(() => {
     if (showProjects) {
@@ -55,6 +58,10 @@ export function ProjectFileTree({
       refsMap.set(project.id, refs)
     }
     setProjectRefs(refsMap)
+    
+    // Load unassigned references
+    const unassigned = await projectManager.getUnassignedReferences()
+    setUnassignedRefs(unassigned)
     
     // Build project tree
     for (const project of projects) {
@@ -90,18 +97,43 @@ export function ProjectFileTree({
         
         for (const ref of references) {
           const refFiles = await buildFileTree(`refs/${ref.id}`)
-          const refNode: ProjectFileNode = {
-            name: ref.name,
-            path: `refs/${ref.id}`,
-            type: 'directory',
-            nodeType: 'reference',
-            projectId: project.id,
-            refId: ref.id,
-            children: refFiles as ProjectFileNode[],
-            metadata: {
-              created: ref.created,
-              modified: ref.modified,
-              description: ref.description
+          
+          // Special handling for document references
+          let refNode: ProjectFileNode
+          if (ref.subtype === 'document') {
+            // For documents, show as a file that opens the main .md file
+            refNode = {
+              name: ref.name,
+              path: `refs/${ref.id}/${ref.id}.md`, // Direct path to the .md file
+              type: 'file',
+              nodeType: 'reference',
+              projectId: project.id,
+              refId: ref.id,
+              metadata: {
+                created: ref.created,
+                modified: ref.modified,
+                description: ref.description,
+                refType: ref.type,
+                refSubtype: ref.subtype
+              }
+            }
+          } else {
+            // For other references, show as folder
+            refNode = {
+              name: ref.name,
+              path: `refs/${ref.id}`,
+              type: 'directory',
+              nodeType: 'reference',
+              projectId: project.id,
+              refId: ref.id,
+              children: refFiles as ProjectFileNode[],
+              metadata: {
+                created: ref.created,
+                modified: ref.modified,
+                description: ref.description,
+                refType: ref.type,
+                refSubtype: ref.subtype
+              }
             }
           }
           referencesNode.children?.push(refNode)
@@ -134,7 +166,9 @@ export function ProjectFileTree({
             metadata: {
               created: ref.created,
               modified: ref.modified,
-              description: ref.description
+              description: ref.description,
+              refType: ref.type,
+              refSubtype: ref.subtype
             }
           }
           artifactsNode.children?.push(refNode)
@@ -155,6 +189,68 @@ export function ProjectFileTree({
       })
     }
     
+    // Add unassigned references section if there are any
+    if (unassigned.length > 0) {
+      const unassignedNode: ProjectFileNode = {
+        name: 'Unassigned References',
+        path: 'unassigned-references',
+        type: 'directory',
+        nodeType: 'folder',
+        children: []
+      }
+      
+      for (const ref of unassigned) {
+        const refFiles = await buildFileTree(`refs/${ref.id}`)
+        
+        // Special handling for document references
+        let refNode: ProjectFileNode
+        if (ref.subtype === 'document') {
+          // For documents, show as a file that opens the main .md file
+          refNode = {
+            name: ref.name,
+            path: `refs/${ref.id}/${ref.id}.md`,
+            type: 'file',
+            nodeType: 'reference',
+            refId: ref.id,
+            metadata: {
+              created: ref.created,
+              modified: ref.modified,
+              description: ref.description,
+              refType: ref.type,
+              refSubtype: ref.subtype
+            }
+          }
+        } else {
+          // For other references, show as folder
+          refNode = {
+            name: ref.name,
+            path: `refs/${ref.id}`,
+            type: 'directory',
+            nodeType: 'reference',
+            refId: ref.id,
+            children: refFiles as ProjectFileNode[],
+            metadata: {
+              created: ref.created,
+              modified: ref.modified,
+              description: ref.description,
+              refType: ref.type,
+              refSubtype: ref.subtype
+            }
+          }
+        }
+        unassignedNode.children?.push(refNode)
+      }
+      
+      tree.push(unassignedNode)
+      
+      // Auto-expand unassigned section
+      setExpandedNodes(prev => {
+        const next = new Set(prev)
+        next.add('unassigned-references')
+        return next
+      })
+    }
+    
     setFileTree(tree)
   }
 
@@ -166,18 +262,40 @@ export function ProjectFileTree({
       const refFiles = await buildFileTree(`refs/${ref.id}`)
       const metadata = await projectManager.loadRefMetadata(ref.id)
       
-      const refNode: ProjectFileNode = {
-        name: ref.name,
-        path: `refs/${ref.id}`,
-        type: 'directory',
-        nodeType: 'reference',
-        refId: ref.id,
-        children: refFiles as ProjectFileNode[],
-        metadata: metadata?.reference ? {
-          created: metadata.reference.created,
-          modified: metadata.reference.modified,
-          description: metadata.reference.description
-        } : undefined
+      let refNode: ProjectFileNode
+      
+      // Special handling for document references
+      if (metadata?.reference.subtype === 'document') {
+        refNode = {
+          name: ref.name,
+          path: `refs/${ref.id}/${ref.id}.md`,
+          type: 'file',
+          nodeType: 'reference',
+          refId: ref.id,
+          metadata: metadata?.reference ? {
+            created: metadata.reference.created,
+            modified: metadata.reference.modified,
+            description: metadata.reference.description,
+            refType: metadata.reference.type,
+            refSubtype: metadata.reference.subtype
+          } : undefined
+        }
+      } else {
+        refNode = {
+          name: ref.name,
+          path: `refs/${ref.id}`,
+          type: 'directory',
+          nodeType: 'reference',
+          refId: ref.id,
+          children: refFiles as ProjectFileNode[],
+          metadata: metadata?.reference ? {
+            created: metadata.reference.created,
+            modified: metadata.reference.modified,
+            description: metadata.reference.description,
+            refType: metadata.reference.type,
+            refSubtype: metadata.reference.subtype
+          } : undefined
+        }
       }
       
       tree.push(refNode)
@@ -199,11 +317,39 @@ export function ProjectFileTree({
   }
 
   const getNodeIcon = (node: ProjectFileNode) => {
-    if (node.type === 'file') return <File className="h-3 w-3" />
     if (node.nodeType === 'project') return <Briefcase className="h-3 w-3" />
-    if (node.nodeType === 'reference') return <Bookmark className="h-3 w-3" />
     if (node.name === 'References') return <BookOpen className="h-3 w-3" />
     if (node.name === 'Artifacts') return <Package className="h-3 w-3" />
+    if (node.name === 'Unassigned References') return <FolderOpen className="h-3 w-3 text-orange-500" />
+    
+    // Icons for references based on their subtype
+    if (node.nodeType === 'reference' && node.metadata) {
+      const { refType, refSubtype } = node.metadata
+      
+      if (refType === 'reference') {
+        switch (refSubtype) {
+          case 'document':
+            return <FileText className="h-3 w-3" />
+          case 'media':
+            return <Image className="h-3 w-3" />
+          default:
+            return <Bookmark className="h-3 w-3" />
+        }
+      } else if (refType === 'artifact') {
+        switch (refSubtype) {
+          case 'code':
+            return <Code className="h-3 w-3" />
+          case 'text':
+            return <Type className="h-3 w-3" />
+          case 'media-artifact':
+            return <Image className="h-3 w-3" />
+          default:
+            return <Package className="h-3 w-3" />
+        }
+      }
+    }
+    
+    if (node.type === 'file') return <File className="h-3 w-3" />
     return <Folder className="h-3 w-3" />
   }
 
@@ -261,10 +407,11 @@ export function ProjectFileTree({
             variant="ghost"
             size="sm"
             className={cn(
-              'w-full justify-start px-2 py-1 h-7 font-normal cursor-pointer',
+              'w-full justify-start px-2 py-1 h-7 font-normal cursor-pointer group',
               isSelected && 'bg-accent',
               isDragOver && 'bg-accent/50 border-2 border-primary',
-              node.nodeType === 'reference' && 'cursor-move'
+              node.nodeType === 'reference' && 'cursor-move',
+              node.name === 'Unassigned References' && 'bg-orange-50 dark:bg-orange-950/20 border-l-2 border-orange-300 dark:border-orange-700'
             )}
             style={{ paddingLeft: `${8 + depth * 16}px` }}
             draggable={node.nodeType === 'reference'}
@@ -273,27 +420,21 @@ export function ProjectFileTree({
             onDragLeave={handleDragLeave}
             onDrop={(e) => handleDrop(e, node)}
             onClick={() => {
-              if (node.type === 'directory') {
+              // Special handling for artifact references
+              if (node.nodeType === 'reference' && node.metadata?.refType === 'artifact' && node.refId) {
+                onOpenArtifactView?.(node.refId, node.metadata.refSubtype || 'code')
+              } else if (node.type === 'directory') {
                 toggleExpanded(node.path)
               } else {
                 onSelectFile(node.path)
               }
             }}
           >
-            {node.type === 'directory' && (
-              <span className="mr-1">
-                {isExpanded ? (
-                  <ChevronDown className="h-3 w-3" />
-                ) : (
-                  <ChevronRight className="h-3 w-3" />
-                )}
-              </span>
-            )}
             <span className="mr-2">{getNodeIcon(node)}</span>
             <span className="truncate flex-1 text-left">{node.name}</span>
             
             {node.nodeType === 'reference' && !showProjects && (
-              <Badge variant="secondary" className="ml-auto text-xs px-1 py-0">
+              <Badge variant="secondary" className="ml-auto text-xs px-1 py-0 mr-2">
                 {projectRefs.size > 0 ? 
                   Array.from(projectRefs.entries())
                     .filter(([_, refs]) => refs.some(r => r.id === node.refId))
@@ -301,6 +442,28 @@ export function ProjectFileTree({
                   : 0
                 } projects
               </Badge>
+            )}
+            
+            {node.type === 'directory' && (
+              <span className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                {/* Show "show files" text for artifacts */}
+                {node.nodeType === 'reference' && node.metadata?.refType === 'artifact' && (
+                  <span 
+                    className="text-xs text-muted-foreground hover:text-foreground cursor-pointer"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      toggleExpanded(node.path)
+                    }}
+                  >
+                    show files
+                  </span>
+                )}
+                {isExpanded ? (
+                  <ChevronDown className="h-3 w-3" />
+                ) : (
+                  <ChevronRight className="h-3 w-3" />
+                )}
+              </span>
             )}
           </Button>
         </FileContextMenu>

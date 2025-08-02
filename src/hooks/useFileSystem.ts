@@ -77,9 +77,12 @@ export function useFileSystem() {
     try {
       const items = await listFiles(dirPath)
       
+      // Filter out .intent-ref.json files
+      const filteredItems = items.filter(item => item.name !== '.intent-ref.json')
+      
       // Recursively build tree for directories
       const tree = await Promise.all(
-        items.map(async (item) => {
+        filteredItems.map(async (item) => {
           if (item.type === 'directory') {
             const children = await buildFileTree(item.path)
             return { ...item, children }

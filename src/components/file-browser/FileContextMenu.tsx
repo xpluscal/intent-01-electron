@@ -20,6 +20,14 @@ import {
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'
 import { Button } from '../ui/button'
+import { Textarea } from '../ui/textarea'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../ui/select'
 import { 
   File, 
   FolderPlus, 
@@ -35,6 +43,8 @@ import {
 import { ProjectFileNode } from '@/types/projects'
 import { projectManager } from '@/lib/projectManager'
 import { toast } from 'sonner'
+import { useDialogKeyboard } from '@/hooks/useDialogKeyboard'
+import { KeyboardHint } from '../ui/keyboard-hint'
 
 interface FileContextMenuProps {
   node: ProjectFileNode
@@ -61,6 +71,16 @@ export function FileContextMenu({
   const [folderName, setFolderName] = useState('')
   const [addToProjectOpen, setAddToProjectOpen] = useState(false)
   const [selectedProjectId, setSelectedProjectId] = useState('')
+  const [editOpen, setEditOpen] = useState(false)
+  const [editName, setEditName] = useState(node.name)
+  const [editDescription, setEditDescription] = useState(node.metadata?.description || '')
+  const [editType, setEditType] = useState<'reference' | 'artifact'>(node.metadata?.refType || 'reference')
+  const [editSubtype, setEditSubtype] = useState(node.metadata?.refSubtype || 'document')
+
+  const isProject = node.nodeType === 'project'
+  const isReference = node.nodeType === 'reference'
+  const isReferencesFolder = node.name === 'References'
+  const isArtifactsFolder = node.name === 'Artifacts'
 
   const handleRename = async () => {
     if (!newName.trim() || newName === node.name) {
@@ -79,6 +99,35 @@ export function FileContextMenu({
     } catch (error) {
       console.error('Failed to rename:', error)
       toast.error('Failed to rename')
+    }
+  }
+
+  const handleEdit = async () => {
+    if (!editName.trim()) return
+
+    try {
+      if (isProject && node.projectId) {
+        // Update project
+        await projectManager.updateProject(node.projectId, {
+          name: editName,
+          description: editDescription
+        })
+        toast.success('Project updated successfully')
+      } else if (isReference && node.refId) {
+        // Update reference
+        await projectManager.updateReference(node.refId, {
+          name: editName,
+          description: editDescription,
+          type: editType,
+          subtype: editSubtype as any
+        })
+        toast.success('Reference updated successfully')
+      }
+      setEditOpen(false)
+      onRefresh()
+    } catch (error) {
+      console.error('Failed to update:', error)
+      toast.error('Failed to update')
     }
   }
 
@@ -160,16 +209,41 @@ export function FileContextMenu({
     }
   }
 
-  const isProject = node.nodeType === 'project'
-  const isReference = node.nodeType === 'reference'
-  const isReferencesFolder = node.name === 'References'
-  
   const canCreateItems = node.type === 'directory' && 
     (isReference || (!node.nodeType && !node.path.startsWith('project:')))
 
-  const canRename = !isProject && !isReference && !isReferencesFolder
+  const canRename = !isProject && !isReference && !isReferencesFolder && !isArtifactsFolder
 
-  const canDelete = canRename && !isProject && !isReferencesFolder
+  const canDelete = canRename && !isProject && !isReferencesFolder && !isArtifactsFolder
+
+  // Keyboard shortcuts for dialogs
+  useDialogKeyboard({
+    isOpen: renameOpen,
+    onSubmit: handleRename,
+    onCancel: () => setRenameOpen(false),
+    isSubmitDisabled: !newName.trim() || newName === node.name
+  })
+
+  useDialogKeyboard({
+    isOpen: editOpen,
+    onSubmit: handleEdit,
+    onCancel: () => setEditOpen(false),
+    isSubmitDisabled: !editName.trim()
+  })
+
+  useDialogKeyboard({
+    isOpen: createFileOpen,
+    onSubmit: handleCreateFile,
+    onCancel: () => setCreateFileOpen(false),
+    isSubmitDisabled: !fileName.trim()
+  })
+
+  useDialogKeyboard({
+    isOpen: createFolderOpen,
+    onSubmit: handleCreateFolder,
+    onCancel: () => setCreateFolderOpen(false),
+    isSubmitDisabled: !folderName.trim()
+  })
 
   return (
     <>
@@ -188,11 +262,27 @@ export function FileContextMenu({
             </>
           )}
           
-          {isProject && onCreateReference && (
+          {isProject && (
             <>
-              <ContextMenuItem onClick={onCreateReference}>
-                <Bookmark className="mr-2 h-4 w-4" />
-                New Reference
+              {onCreateReference && (
+                <ContextMenuItem onClick={onCreateReference}>
+                  <Bookmark className="mr-2 h-4 w-4" />
+                  New Reference
+                </ContextMenuItem>
+              )}
+              <ContextMenuItem onClick={() => setEditOpen(true)}>
+                <Edit className="mr-2 h-4 w-4" />
+                Edit Project
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+            </>
+          )}
+
+          {isReference && (
+            <>
+              <ContextMenuItem onClick={() => setEditOpen(true)}>
+                <Edit className="mr-2 h-4 w-4" />
+                Edit Reference
               </ContextMenuItem>
               <ContextMenuSeparator />
             </>
@@ -288,13 +378,18 @@ export function FileContextMenu({
               autoFocus
             />
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRenameOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleRename} disabled={!newName.trim() || newName === node.name}>
-              Rename
-            </Button>
+          <DialogFooter className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <KeyboardHint keys={['⌘', 'Enter']} /> to submit • <KeyboardHint keys={['Esc']} /> to cancel
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setRenameOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleRename} disabled={!newName.trim() || newName === node.name}>
+                Rename
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -324,13 +419,18 @@ export function FileContextMenu({
               autoFocus
             />
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateFileOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleCreateFile} disabled={!fileName.trim()}>
-              Create
-            </Button>
+          <DialogFooter className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <KeyboardHint keys={['⌘', 'Enter']} /> to submit • <KeyboardHint keys={['Esc']} /> to cancel
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setCreateFileOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleCreateFile} disabled={!fileName.trim()}>
+                Create
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -360,13 +460,18 @@ export function FileContextMenu({
               autoFocus
             />
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateFolderOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleCreateFolder} disabled={!folderName.trim()}>
-              Create
-            </Button>
+          <DialogFooter className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <KeyboardHint keys={['⌘', 'Enter']} /> to submit • <KeyboardHint keys={['Esc']} /> to cancel
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setCreateFolderOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleCreateFolder} disabled={!folderName.trim()}>
+                Create
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -387,6 +492,106 @@ export function FileContextMenu({
             <Button onClick={handleAddToProject}>
               Add to Project
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Dialog */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit {isProject ? 'Project' : 'Reference'}</DialogTitle>
+            <DialogDescription>
+              Update the details for this {isProject ? 'project' : 'reference'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-name">Name</Label>
+              <Input
+                id="edit-name"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                placeholder={`${isProject ? 'Project' : 'Reference'} name`}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    handleEdit()
+                  }
+                }}
+                autoFocus
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-description">Description</Label>
+              <Textarea
+                id="edit-description"
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                placeholder="Add a description..."
+                rows={3}
+              />
+            </div>
+            
+            {isReference && (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-type">Type</Label>
+                  <Select 
+                    value={editType} 
+                    onValueChange={(value) => {
+                      setEditType(value as 'reference' | 'artifact')
+                      // Reset subtype when type changes
+                      setEditSubtype(value === 'reference' ? 'document' : 'code')
+                    }}
+                  >
+                    <SelectTrigger id="edit-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="reference">Reference</SelectItem>
+                      <SelectItem value="artifact">Artifact</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="edit-subtype">Subtype</Label>
+                  <Select value={editSubtype} onValueChange={setEditSubtype}>
+                    <SelectTrigger id="edit-subtype">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {editType === 'reference' ? (
+                        <>
+                          <SelectItem value="document">Document</SelectItem>
+                          <SelectItem value="media">Media</SelectItem>
+                        </>
+                      ) : (
+                        <>
+                          <SelectItem value="code">Code</SelectItem>
+                          <SelectItem value="text">Text</SelectItem>
+                          <SelectItem value="media-artifact">Media</SelectItem>
+                        </>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </>
+            )}
+          </div>
+          <DialogFooter className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <KeyboardHint keys={['⌘', 'Enter']} /> to submit • <KeyboardHint keys={['Esc']} /> to cancel
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setEditOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleEdit} disabled={!editName.trim()}>
+                Save Changes
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
