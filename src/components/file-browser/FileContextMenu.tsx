@@ -39,7 +39,8 @@ import {
   RefreshCcw,
   Bookmark,
   Briefcase,
-  BookOpen
+  BookOpen,
+  Package
 } from 'lucide-react'
 import { ProjectFileNode } from '@/types/projects'
 import { projectManager } from '@/lib/projectManager'
@@ -55,6 +56,7 @@ interface FileContextMenuProps {
   onRefresh: () => void
   onOpenFile?: (path: string) => void
   onCreateReference?: () => void
+  onCreateArtifact?: () => void
   projects?: Array<{ id: string; name: string }>
 }
 
@@ -64,6 +66,7 @@ export function FileContextMenu({
   onRefresh,
   onOpenFile,
   onCreateReference,
+  onCreateArtifact,
   projects = []
 }: FileContextMenuProps) {
   const [renameOpen, setRenameOpen] = useState(false)
@@ -332,6 +335,16 @@ export function FileContextMenu({
               <ContextMenuItem onClick={onCreateReference}>
                 <Bookmark className="mr-2 h-4 w-4" />
                 New Reference
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+            </>
+          )}
+
+          {isArtifactsFolder && onCreateArtifact && (
+            <>
+              <ContextMenuItem onClick={onCreateArtifact}>
+                <Package className="mr-2 h-4 w-4" />
+                New Artifact
               </ContextMenuItem>
               <ContextMenuSeparator />
             </>

@@ -32,22 +32,37 @@ export function CodeArtifactView({ refId, refName, onClose }: CodeArtifactViewPr
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="p-4 border-b">
+      <div className="px-4 py-2 border-b">
         <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-semibold flex items-center gap-2">
-              <Code2 className="h-5 w-5" />
-              {refName}
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              Code Artifact View
-            </p>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <Code2 className="h-4 w-4" />
+              <h2 className="text-base font-semibold">{refName}</h2>
+            </div>
+            {readReferences.length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Uses:</span>
+                <div className="flex items-center gap-1">
+                  {readReferences.slice(0, 3).map(ref => (
+                    <Badge key={ref.id} variant="secondary" className="text-xs">
+                      {ref.name}
+                    </Badge>
+                  ))}
+                  {readReferences.length > 3 && (
+                    <Badge variant="secondary" className="text-xs">
+                      +{readReferences.length - 3}
+                    </Badge>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
           {onClose && (
             <Button 
               onClick={onClose} 
               variant="ghost"
               size="sm"
+              className="h-8 w-8 p-0"
             >
               <X className="h-4 w-4" />
             </Button>
@@ -57,24 +72,6 @@ export function CodeArtifactView({ refId, refName, onClose }: CodeArtifactViewPr
 
       {/* Content */}
       <div className="flex-1 flex flex-col">
-        {/* Read References Info */}
-        {readReferences.length > 0 && (
-          <div className="p-4 border-b bg-muted/30">
-            <div className="flex items-center gap-2 mb-2">
-              <BookOpen className="h-4 w-4" />
-              <span className="text-sm font-medium">Uses:</span>
-              <Badge variant="secondary">{readReferences.length}</Badge>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {readReferences.map(ref => (
-                <Badge key={ref.id} variant="outline" className="text-xs">
-                  {ref.name}
-                </Badge>
-              ))}
-            </div>
-          </div>
-        )}
-        
         {/* Placeholder Content */}
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">

@@ -3,11 +3,13 @@ import { ProjectFileTree } from './ProjectFileTree'
 import { FileViewer } from './FileViewer'
 import { BackgroundContextMenu } from './BackgroundContextMenu'
 import { CodeArtifactView } from '../artifact-views/CodeArtifactView'
+import { CreateArtifactDialog } from '../dialogs/CreateArtifactDialog'
 import { ResizablePanel, ResizablePanelGroup, ResizableHandle } from '../ui/resizable'
 import { ScrollArea } from '../ui/scroll-area'
 import { projectManager } from '@/lib/projectManager'
 import { Project } from '@/types/projects'
 import { useDialogKeyboard } from '@/hooks/useDialogKeyboard'
+import { toast } from 'sonner'
 import { KeyboardHint } from '../ui/keyboard-hint'
 import { EmojiPicker } from '../ui/emoji-picker'
 import { Button } from '../ui/button'
@@ -56,6 +58,8 @@ export function SimplifiedProjectBrowser() {
   const [referenceSubtype, setReferenceSubtype] = useState<string>('document')
   const [selectedProjectId, setSelectedProjectId] = useState('')
   const [creating, setCreating] = useState(false)
+  const [createArtifactOpen, setCreateArtifactOpen] = useState(false)
+  const [selectedProjectIdForArtifact, setSelectedProjectIdForArtifact] = useState('')
 
   useEffect(() => {
     loadProjects()
@@ -235,6 +239,66 @@ export function SimplifiedProjectBrowser() {
     setArtifactView(null) // Clear artifact view when selecting a file
   }
 
+  const openCreateArtifact = (projectId?: string) => {
+    setSelectedProjectIdForArtifact(projectId || '')
+    setCreateArtifactOpen(true)
+  }
+
+  const handleCreateArtifact = async (
+    name: string,
+    description: string,
+    subtype: string,
+    readReferences: string[]
+  ) => {
+    const refId = name.toLowerCase().replace(/[^a-z0-9-]/g, '-')
+    const refPath = `refs/${refId}`
+    
+    await window.intentAPI.createDirectory(refPath)
+    await projectManager.createRefMetadata(
+      refId,
+      name,
+      'artifact',
+      subtype as any,
+      description
+    )
+    
+    // Add read references
+    for (const readRefId of readReferences) {
+      await projectManager.addReadReference(refId, readRefId)
+    }
+    
+    // Add to project if provided
+    if (selectedProjectIdForArtifact) {
+      await projectManager.addRefToProject(selectedProjectIdForArtifact, refId)
+    }
+    
+    // Create default file based on subtype
+    let defaultContent = ''
+    let fileName = ''
+    
+    switch (subtype) {
+      case 'code':
+        fileName = `${refId}.ts`
+        defaultContent = `// ${name}\n// ${description || 'Code artifact'}\n\nexport {}`
+        break
+      case 'text':
+        fileName = `${refId}.txt`
+        defaultContent = `${name}\n${'='.repeat(name.length)}\n\n${description || ''}`
+        break
+      case 'media-artifact':
+        fileName = `${refId}.md`
+        defaultContent = `# ${name}\n\n${description || 'Media artifact'}\n\n<!-- Add your media files to this folder -->`
+        break
+    }
+    
+    if (fileName) {
+      const filePath = `${refPath}/${fileName}`
+      await window.intentAPI.createFile(filePath, defaultContent)
+    }
+    
+    handleRefresh()
+  }
+
   const handleCloseFile = () => {
     setSelectedFile(null)
   }
@@ -246,7 +310,7 @@ export function SimplifiedProjectBrowser() {
           <div className="h-full flex flex-col">
             {/* Header with add button */}
             <div className="border-b p-2 flex items-center justify-between">
-              <h2 className="text-sm font-medium">Files</h2>
+              <h2 className="text-sm font-medium">Projects</h2>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" size="icon" className="h-7 w-7">
@@ -291,6 +355,7 @@ export function SimplifiedProjectBrowser() {
                     }
                     setCreateReferenceOpen(true)
                   }}
+                  onCreateArtifact={openCreateArtifact}
                   onMoveReference={handleMoveReference}
                   onOpenArtifactView={handleOpenArtifactView}
                 />
@@ -524,6 +589,14 @@ export function SimplifiedProjectBrowser() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Create Artifact Dialog */}
+      <CreateArtifactDialog
+        open={createArtifactOpen}
+        onOpenChange={setCreateArtifactOpen}
+        projectId={selectedProjectIdForArtifact}
+        onCreateArtifact={handleCreateArtifact}
+      />
     </>
   )
 }

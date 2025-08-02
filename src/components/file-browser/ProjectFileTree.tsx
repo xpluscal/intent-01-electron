@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { ChevronRight, ChevronDown, File, Folder, Briefcase, Bookmark, BookOpen, Loader2, Package, FileText, Image, Code, Type, FolderOpen, Video, Music, FileImage } from 'lucide-react'
+import { ChevronRight, ChevronDown, File, Folder, Briefcase, Bookmark, BookOpen, Loader2, Package, FileText, Image, Code, Type, FolderOpen, Video, Music, FileImage, Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '../ui/button'
 import { Badge } from '../ui/badge'
@@ -17,6 +17,7 @@ interface ProjectFileTreeProps {
   loading?: boolean
   onRefresh?: () => void
   onCreateReference?: (projectId?: string) => void
+  onCreateArtifact?: (projectId?: string) => void
   onMoveReference?: (refId: string, targetProjectId: string) => Promise<void>
   onOpenArtifactView?: (refId: string, artifactType: string) => void
 }
@@ -29,6 +30,7 @@ export function ProjectFileTree({
   loading = false,
   onRefresh,
   onCreateReference,
+  onCreateArtifact,
   onMoveReference,
   onOpenArtifactView
 }: ProjectFileTreeProps) {
@@ -88,7 +90,7 @@ export function ProjectFileTree({
       const artifacts = refs.filter(r => r.type === 'artifact')
       
       // Add References folder
-      if (references.length > 0) {
+      if (references.length > 0 || true) { // Always show References folder
         const referencesNode: ProjectFileNode = {
           name: 'References',
           path: `${projectNode.path}/references`,
@@ -146,7 +148,7 @@ export function ProjectFileTree({
       }
       
       // Add Artifacts folder
-      if (artifacts.length > 0) {
+      if (artifacts.length > 0 || true) { // Always show Artifacts folder
         const artifactsNode: ProjectFileNode = {
           name: 'Artifacts',
           path: `${projectNode.path}/artifacts`,
@@ -580,6 +582,11 @@ export function ProjectFileTree({
               ? () => onCreateReference?.(node.projectId) 
               : undefined
           }
+          onCreateArtifact={
+            (node.name === 'Artifacts' && node.projectId)
+              ? () => onCreateArtifact?.(node.projectId)
+              : undefined
+          }
           projects={projects.map(p => ({ id: p.id, name: p.name }))}
         >
           <Button
@@ -671,10 +678,31 @@ export function ProjectFileTree({
                     show files
                   </span>
                 )}
-                {isExpanded ? (
-                  <ChevronDown className="h-3 w-3" />
-                ) : (
-                  <ChevronRight className="h-3 w-3" />
+                {/* Show add button for References and Artifacts folders */}
+                {(node.name === 'References' || node.name === 'Artifacts') && node.projectId && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-5 w-5 p-0 hover:bg-accent"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (node.name === 'References' && onCreateReference) {
+                        onCreateReference(node.projectId)
+                      } else if (node.name === 'Artifacts' && onCreateArtifact) {
+                        onCreateArtifact(node.projectId)
+                      }
+                    }}
+                  >
+                    <Plus className="h-3 w-3" />
+                  </Button>
+                )}
+                {/* Show chevron for other directories */}
+                {node.name !== 'References' && node.name !== 'Artifacts' && (
+                  isExpanded ? (
+                    <ChevronDown className="h-3 w-3" />
+                  ) : (
+                    <ChevronRight className="h-3 w-3" />
+                  )
                 )}
               </span>
             )}

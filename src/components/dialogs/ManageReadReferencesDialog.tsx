@@ -104,7 +104,7 @@ export function ManageReadReferencesDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>Manage Context</DialogTitle>
           <DialogDescription>
@@ -112,7 +112,8 @@ export function ManageReadReferencesDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <ScrollArea className="flex-1 pr-4">
+          <div className="space-y-4">
           {/* Current Read References */}
           <div>
             <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
@@ -199,9 +200,10 @@ export function ManageReadReferencesDialog({
               )}
             </ScrollArea>
           </div>
-        </div>
+          </div>
+        </ScrollArea>
 
-        <DialogFooter>
+        <DialogFooter className="border-t pt-4 mt-4">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Done
           </Button>
