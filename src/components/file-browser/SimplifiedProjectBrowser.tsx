@@ -345,6 +345,7 @@ export function SimplifiedProjectBrowser() {
                   projects={projects}
                   onSelectFile={handleSelectFile}
                   selectedFile={selectedFile}
+                  selectedArtifact={artifactView?.refId}
                   showProjects={true}
                   loading={loading}
                   onRefresh={handleRefresh}

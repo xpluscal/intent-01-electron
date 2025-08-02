@@ -29,6 +29,7 @@ import logsRoutes from './server/routes/logs.js'
 import filesRoutes from './server/routes/files.js'
 import previewRoutes from './server/routes/preview.js'
 import refsRoutes from './server/routes/refs.js'
+import refPreviewRoutes from './server/routes/refPreview.js'
 import cleanupRoutes from './server/routes/cleanup.js'
 import resourcesRoutes from './server/routes/resources.js'
 import monitoringRoutes from './server/routes/monitoring.js'
@@ -146,6 +147,7 @@ export class IntentServer {
       app.use('/', filesRoutes)
       app.use('/preview', previewRoutes)
       app.use('/', refsRoutes)
+      app.use('/', refPreviewRoutes)
       app.use('/', cleanupRoutes)
       app.use('/', resourcesRoutes)
       app.use('/', monitoringRoutes)
