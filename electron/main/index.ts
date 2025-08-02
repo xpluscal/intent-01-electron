@@ -242,7 +242,13 @@ ipcMain.handle('intent:delete-file', async (event, filePath) => {
     throw new Error('Access denied: Path outside workspace')
   }
   
-  await fs.unlink(fullPath)
+  // Check if it's a directory
+  const stat = await fs.stat(fullPath)
+  if (stat.isDirectory()) {
+    await fs.rm(fullPath, { recursive: true, force: true })
+  } else {
+    await fs.unlink(fullPath)
+  }
   return true
 })
 
@@ -310,4 +316,95 @@ ipcMain.handle('intent:check-metadata-exists', async (event, filePath) => {
   } catch {
     return false
   }
+})
+
+ipcMain.handle('intent:copy-file', async (event, sourcePath, destPath) => {
+  const { promises: fs } = await import('node:fs')
+  const userDataPath = app.getPath('userData')
+  const workspacePath = path.join(userDataPath, 'intent-workspace')
+  
+  const fullDestPath = path.join(workspacePath, destPath)
+  if (!fullDestPath.startsWith(workspacePath)) {
+    throw new Error('Access denied: Destination path outside workspace')
+  }
+  
+  // Ensure destination directory exists
+  const destDir = path.dirname(fullDestPath)
+  await fs.mkdir(destDir, { recursive: true })
+  
+  // Copy the file
+  await fs.copyFile(sourcePath, fullDestPath)
+  return true
+})
+
+ipcMain.handle('intent:write-file-buffer', async (event, filePath, buffer) => {
+  const { promises: fs } = await import('node:fs')
+  const userDataPath = app.getPath('userData')
+  const workspacePath = path.join(userDataPath, 'intent-workspace')
+  
+  const fullPath = path.join(workspacePath, filePath)
+  if (!fullPath.startsWith(workspacePath)) {
+    throw new Error('Access denied: Path outside workspace')
+  }
+  
+  // Ensure directory exists
+  const dir = path.dirname(fullPath)
+  await fs.mkdir(dir, { recursive: true })
+  
+  // Write the buffer to file
+  await fs.writeFile(fullPath, Buffer.from(buffer))
+  return true
+})
+
+ipcMain.handle('intent:get-file-url', async (event, filePath) => {
+  const { promises: fs } = await import('node:fs')
+  const userDataPath = app.getPath('userData')
+  const workspacePath = path.join(userDataPath, 'intent-workspace')
+  
+  const fullPath = path.join(workspacePath, filePath)
+  if (!fullPath.startsWith(workspacePath)) {
+    throw new Error('Access denied: Path outside workspace')
+  }
+  
+  // Read file and return as data URL
+  const buffer = await fs.readFile(fullPath)
+  const ext = path.extname(filePath).toLowerCase().slice(1)
+  
+  // Determine MIME type
+  let mimeType = 'application/octet-stream'
+  const mimeTypes: Record<string, string> = {
+    // Images
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    png: 'image/png',
+    gif: 'image/gif',
+    bmp: 'image/bmp',
+    svg: 'image/svg+xml',
+    webp: 'image/webp',
+    ico: 'image/x-icon',
+    // Videos
+    mp4: 'video/mp4',
+    webm: 'video/webm',
+    ogg: 'video/ogg',
+    mov: 'video/quicktime',
+    avi: 'video/x-msvideo',
+    wmv: 'video/x-ms-wmv',
+    flv: 'video/x-flv',
+    mkv: 'video/x-matroska',
+    // Audio
+    mp3: 'audio/mpeg',
+    wav: 'audio/wav',
+    flac: 'audio/flac',
+    aac: 'audio/aac',
+    ogg: 'audio/ogg',
+    wma: 'audio/x-ms-wma',
+    m4a: 'audio/mp4'
+  }
+  
+  if (ext in mimeTypes) {
+    mimeType = mimeTypes[ext]
+  }
+  
+  // Return data URL
+  return `data:${mimeType};base64,${buffer.toString('base64')}`
 })

@@ -38,6 +38,9 @@ contextBridge.exposeInMainWorld('intentAPI', {
   deleteFile: (filePath: string) => ipcRenderer.invoke('intent:delete-file', filePath),
   createDirectory: (dirPath: string) => ipcRenderer.invoke('intent:create-directory', dirPath),
   renameFile: (oldPath: string, newPath: string) => ipcRenderer.invoke('intent:rename-file', oldPath, newPath),
+  copyFile: (sourcePath: string, destPath: string) => ipcRenderer.invoke('intent:copy-file', sourcePath, destPath),
+  writeFileBuffer: (filePath: string, buffer: ArrayBuffer) => ipcRenderer.invoke('intent:write-file-buffer', filePath, buffer),
+  getFileUrl: (filePath: string) => ipcRenderer.invoke('intent:get-file-url', filePath),
   
   // Project management
   scanRefs: () => ipcRenderer.invoke('intent:scan-refs'),

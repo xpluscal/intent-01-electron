@@ -9,6 +9,7 @@ import { projectManager } from '@/lib/projectManager'
 import { Project } from '@/types/projects'
 import { useDialogKeyboard } from '@/hooks/useDialogKeyboard'
 import { KeyboardHint } from '../ui/keyboard-hint'
+import { EmojiPicker } from '../ui/emoji-picker'
 import { Button } from '../ui/button'
 import { Plus, FolderPlus, Briefcase } from 'lucide-react'
 import {
@@ -48,6 +49,7 @@ export function SimplifiedProjectBrowser() {
   const [createProjectOpen, setCreateProjectOpen] = useState(false)
   const [projectName, setProjectName] = useState('')
   const [projectDescription, setProjectDescription] = useState('')
+  const [projectEmoji, setProjectEmoji] = useState('📁')
   const [createReferenceOpen, setCreateReferenceOpen] = useState(false)
   const [referenceName, setReferenceName] = useState('')
   const [referenceType, setReferenceType] = useState<'reference' | 'artifact'>('reference')
@@ -102,10 +104,52 @@ export function SimplifiedProjectBrowser() {
     
     setCreating(true)
     try {
-      await projectManager.createProject(projectName.trim(), projectDescription.trim() || undefined)
+      const project = await projectManager.createProject(projectName.trim(), projectDescription.trim() || undefined, projectEmoji)
+      
+      // Create default references for the new project
+      const defaultReferences = [
+        { name: 'Project Overview', id: 'project-overview' },
+        { name: 'Branding Guidelines', id: 'branding-guidelines' },
+        { name: 'Image Guidelines', id: 'image-guidelines' }
+      ]
+      
+      for (const ref of defaultReferences) {
+        const refId = `${project.id}-${ref.id}`
+        const refPath = `refs/${refId}`
+        
+        // Create reference directory
+        await window.intentAPI.createDirectory(refPath)
+        
+        // Create reference metadata
+        await projectManager.createRefMetadata(refId, ref.name, 'reference', 'document')
+        
+        // Create default .md file
+        const docPath = `${refPath}/${refId}.md`
+        let defaultContent = `# ${ref.name}\n\n`
+        
+        // Add specific template content based on reference type
+        switch (ref.id) {
+          case 'project-overview':
+            defaultContent += `## Project Description\n${projectDescription.trim() || 'Add your project description here...'}\n\n## Goals\n- \n\n## Key Features\n- \n\n## Timeline\n- `
+            break
+          case 'branding-guidelines':
+            defaultContent += `## Brand Identity\n\n### Logo\n*Add logo files to this reference*\n\n### Colors\n- Primary: \n- Secondary: \n\n### Typography\n- Headers: \n- Body: \n\n### Voice & Tone\n`
+            break
+          case 'image-guidelines':
+            defaultContent += `## Image Standards\n\n### Formats\n- Web: PNG, WebP\n- Print: \n\n### Dimensions\n- Hero images: \n- Thumbnails: \n\n### Style Guidelines\n- \n\n### Examples\n*Add example images to this reference*`
+            break
+        }
+        
+        await window.intentAPI.createFile(docPath, defaultContent)
+        
+        // Add reference to project
+        await projectManager.addRefToProject(project.id, refId)
+      }
+      
       setCreateProjectOpen(false)
       setProjectName('')
       setProjectDescription('')
+      setProjectEmoji('📁')
       handleRefresh()
     } catch (error) {
       console.error('Failed to create project:', error)
@@ -305,21 +349,29 @@ export function SimplifiedProjectBrowser() {
           </DialogHeader>
           
           <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="project-name">Project Name</Label>
-              <Input
-                id="project-name"
-                placeholder="My Awesome Project"
-                value={projectName}
-                onChange={(e) => setProjectName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault()
-                    handleCreateProject()
-                  }
-                }}
-                autoFocus
-              />
+            <div className="flex gap-3">
+              <div>
+                <Label>Icon</Label>
+                <div className="mt-2">
+                  <EmojiPicker value={projectEmoji} onChange={setProjectEmoji} />
+                </div>
+              </div>
+              <div className="flex-1 space-y-2">
+                <Label htmlFor="project-name">Project Name</Label>
+                <Input
+                  id="project-name"
+                  placeholder="My Awesome Project"
+                  value={projectName}
+                  onChange={(e) => setProjectName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      handleCreateProject()
+                    }
+                  }}
+                  autoFocus
+                />
+              </div>
             </div>
             
             <div className="space-y-2">

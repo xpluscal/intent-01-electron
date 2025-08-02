@@ -4,6 +4,7 @@ export interface Project {
   id: string
   name: string
   description?: string
+  emoji?: string
   created: Date
   modified: Date
   refs: string[] // Reference IDs
@@ -66,5 +67,6 @@ export interface ProjectFileNode {
     description?: string
     refType?: ReferenceType
     refSubtype?: ReferenceSubtype
+    emoji?: string
   }
 }

@@ -8035,7 +8035,12 @@ ipcMain.handle("intent:delete-file", async (event, filePath) => {
   if (!fullPath.startsWith(workspacePath)) {
     throw new Error("Access denied: Path outside workspace");
   }
-  await fs2.unlink(fullPath);
+  const stat = await fs2.stat(fullPath);
+  if (stat.isDirectory()) {
+    await fs2.rm(fullPath, { recursive: true, force: true });
+  } else {
+    await fs2.unlink(fullPath);
+  }
   return true;
 });
 ipcMain.handle("intent:create-directory", async (event, dirPath) => {
@@ -8089,6 +8094,76 @@ ipcMain.handle("intent:check-metadata-exists", async (event, filePath) => {
   } catch {
     return false;
   }
+});
+ipcMain.handle("intent:copy-file", async (event, sourcePath, destPath) => {
+  const { promises: fs2 } = await import("node:fs");
+  const userDataPath = app.getPath("userData");
+  const workspacePath = path.join(userDataPath, "intent-workspace");
+  const fullDestPath = path.join(workspacePath, destPath);
+  if (!fullDestPath.startsWith(workspacePath)) {
+    throw new Error("Access denied: Destination path outside workspace");
+  }
+  const destDir = path.dirname(fullDestPath);
+  await fs2.mkdir(destDir, { recursive: true });
+  await fs2.copyFile(sourcePath, fullDestPath);
+  return true;
+});
+ipcMain.handle("intent:write-file-buffer", async (event, filePath, buffer) => {
+  const { promises: fs2 } = await import("node:fs");
+  const userDataPath = app.getPath("userData");
+  const workspacePath = path.join(userDataPath, "intent-workspace");
+  const fullPath = path.join(workspacePath, filePath);
+  if (!fullPath.startsWith(workspacePath)) {
+    throw new Error("Access denied: Path outside workspace");
+  }
+  const dir = path.dirname(fullPath);
+  await fs2.mkdir(dir, { recursive: true });
+  await fs2.writeFile(fullPath, Buffer.from(buffer));
+  return true;
+});
+ipcMain.handle("intent:get-file-url", async (event, filePath) => {
+  const { promises: fs2 } = await import("node:fs");
+  const userDataPath = app.getPath("userData");
+  const workspacePath = path.join(userDataPath, "intent-workspace");
+  const fullPath = path.join(workspacePath, filePath);
+  if (!fullPath.startsWith(workspacePath)) {
+    throw new Error("Access denied: Path outside workspace");
+  }
+  const buffer = await fs2.readFile(fullPath);
+  const ext = path.extname(filePath).toLowerCase().slice(1);
+  let mimeType = "application/octet-stream";
+  const mimeTypes = {
+    // Images
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    png: "image/png",
+    gif: "image/gif",
+    bmp: "image/bmp",
+    svg: "image/svg+xml",
+    webp: "image/webp",
+    ico: "image/x-icon",
+    // Videos
+    mp4: "video/mp4",
+    webm: "video/webm",
+    ogg: "video/ogg",
+    mov: "video/quicktime",
+    avi: "video/x-msvideo",
+    wmv: "video/x-ms-wmv",
+    flv: "video/x-flv",
+    mkv: "video/x-matroska",
+    // Audio
+    mp3: "audio/mpeg",
+    wav: "audio/wav",
+    flac: "audio/flac",
+    aac: "audio/aac",
+    ogg: "audio/ogg",
+    wma: "audio/x-ms-wma",
+    m4a: "audio/mp4"
+  };
+  if (ext in mimeTypes) {
+    mimeType = mimeTypes[ext];
+  }
+  return `data:${mimeType};base64,${buffer.toString("base64")}`;
 });
 export {
   MAIN_DIST,

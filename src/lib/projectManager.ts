@@ -46,7 +46,7 @@ export class ProjectManager {
   }
 
   // Create a new project
-  async createProject(name: string, description?: string): Promise<Project> {
+  async createProject(name: string, description?: string, emoji?: string): Promise<Project> {
     const projects = await this.loadProjects()
     const id = this.generateId(name)
     
@@ -54,6 +54,7 @@ export class ProjectManager {
       id,
       name,
       description,
+      emoji,
       created: new Date(),
       modified: new Date(),
       refs: []
@@ -242,7 +243,7 @@ export class ProjectManager {
   }
 
   // Update project
-  async updateProject(projectId: string, updates: { name?: string; description?: string }): Promise<void> {
+  async updateProject(projectId: string, updates: { name?: string; description?: string; emoji?: string }): Promise<void> {
     const projects = await this.loadProjects()
     const project = projects.projects[projectId]
     
@@ -255,6 +256,9 @@ export class ProjectManager {
     }
     if (updates.description !== undefined) {
       project.description = updates.description
+    }
+    if (updates.emoji !== undefined) {
+      project.emoji = updates.emoji
     }
     
     project.modified = new Date()
@@ -289,6 +293,49 @@ export class ProjectManager {
     
     metadata.reference.modified = new Date()
     await this.saveRefMetadata(refId, metadata)
+  }
+
+  // Delete project
+  async deleteProject(projectId: string): Promise<void> {
+    const projects = await this.loadProjects()
+    
+    if (!projects.projects[projectId]) {
+      throw new Error(`Project ${projectId} not found`)
+    }
+    
+    // Delete all references assigned to this project
+    const project = projects.projects[projectId]
+    for (const refId of project.refs) {
+      try {
+        // Delete the reference directory
+        const refPath = `refs/${refId}`
+        await window.intentAPI.deleteFile(refPath)
+      } catch (error) {
+        console.error(`Failed to delete reference ${refId}:`, error)
+      }
+    }
+    
+    // Delete the project
+    delete projects.projects[projectId]
+    await this.saveProjects(projects)
+  }
+
+  // Delete reference
+  async deleteReference(refId: string): Promise<void> {
+    const metadata = await this.loadRefMetadata(refId)
+    
+    if (!metadata) {
+      throw new Error(`Reference ${refId} not found`)
+    }
+    
+    // Remove reference from all projects
+    for (const projectId of metadata.reference.projects) {
+      await this.removeRefFromProject(projectId, refId)
+    }
+    
+    // Delete the reference directory
+    const refPath = `refs/${refId}`
+    await window.intentAPI.deleteFile(refPath)
   }
 
   // Helper to generate ID from name

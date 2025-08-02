@@ -22,6 +22,9 @@ interface IntentAPI {
   deleteFile: (filePath: string) => Promise<boolean>
   createDirectory: (dirPath: string) => Promise<boolean>
   renameFile: (oldPath: string, newPath: string) => Promise<boolean>
+  copyFile: (sourcePath: string, destPath: string) => Promise<boolean>
+  writeFileBuffer: (filePath: string, buffer: ArrayBuffer) => Promise<boolean>
+  getFileUrl: (filePath: string) => Promise<string>
   
   // Project management
   scanRefs: () => Promise<Array<{ id: string; name: string; path: string }>>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { ChevronRight, ChevronDown, File, Folder, Briefcase, Bookmark, BookOpen, Loader2, Package, FileText, Image, Code, Type, FolderOpen } from 'lucide-react'
+import { ChevronRight, ChevronDown, File, Folder, Briefcase, Bookmark, BookOpen, Loader2, Package, FileText, Image, Code, Type, FolderOpen, Video, Music, FileImage } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '../ui/button'
 import { Badge } from '../ui/badge'
@@ -75,7 +75,8 @@ export function ProjectFileTree({
         metadata: {
           created: project.created,
           modified: project.modified,
-          description: project.description
+          description: project.description,
+          emoji: project.emoji
         }
       }
       
@@ -316,8 +317,135 @@ export function ProjectFileTree({
     })
   }
 
+  const handleExternalFileDrop = async (file: File, projectId: string | null) => {
+    // Generate reference ID from filename
+    const baseName = file.name.replace(/\.[^/.]+$/, '') // Remove extension
+    const refId = baseName.toLowerCase().replace(/[^a-z0-9-]/g, '-')
+    
+    // Determine type and subtype based on file extension
+    const extension = file.name.split('.').pop()?.toLowerCase() || ''
+    let refType: 'reference' | 'artifact' = 'reference'
+    let refSubtype: string = 'document'
+    
+    // Detect file type
+    const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp']
+    const videoExtensions = ['mp4', 'avi', 'mov', 'wmv', 'flv', 'webm', 'mkv']
+    const audioExtensions = ['mp3', 'wav', 'flac', 'aac', 'ogg', 'wma']
+    const markdownExtensions = ['md', 'markdown']
+    
+    if (markdownExtensions.includes(extension)) {
+      refType = 'reference'
+      refSubtype = 'document'
+    } else if ([...imageExtensions, ...videoExtensions, ...audioExtensions].includes(extension)) {
+      refType = 'reference'
+      refSubtype = 'media'
+    } else {
+      // Default to document for other file types
+      refType = 'reference'
+      refSubtype = 'document'
+    }
+    
+    // Create reference directory
+    const refPath = `refs/${refId}`
+    await window.intentAPI.createDirectory(refPath)
+    
+    // Create reference metadata
+    await projectManager.createRefMetadata(refId, baseName, refType, refSubtype as any)
+    
+    // Copy the file to the reference directory
+    const destFileName = file.name
+    const destPath = `${refPath}/${destFileName}`
+    
+    if (markdownExtensions.includes(extension)) {
+      // For markdown files, read as text
+      const text = await file.text()
+      await window.intentAPI.createFile(destPath, text)
+    } else {
+      // For binary files, use the buffer write API
+      const arrayBuffer = await file.arrayBuffer()
+      await window.intentAPI.writeFileBuffer(destPath, arrayBuffer)
+    }
+    
+    // For document references, create the default .md file if it doesn't exist
+    if (refType === 'reference' && refSubtype === 'document' && !markdownExtensions.includes(extension)) {
+      const docPath = `${refPath}/${refId}.md`
+      const defaultContent = `# ${baseName}\n\nFile: ${file.name}\n`
+      await window.intentAPI.createFile(docPath, defaultContent)
+    }
+    
+    // Add reference to project if projectId is provided
+    if (projectId) {
+      await projectManager.addRefToProject(projectId, refId)
+    }
+  }
+
+  // Helper to get the single media file from a media reference
+  const getSingleMediaFile = (node: ProjectFileNode): string | null => {
+    if (node.nodeType !== 'reference' || node.metadata?.refSubtype !== 'media') {
+      return null
+    }
+    
+    // Filter out .intent-ref.json and find media files
+    const mediaFiles = node.children?.filter(child => 
+      child.type === 'file' && 
+      !child.name.endsWith('.intent-ref.json')
+    ) || []
+    
+    // If exactly one media file, return its path
+    if (mediaFiles.length === 1) {
+      return mediaFiles[0].path
+    }
+    
+    return null
+  }
+
+  // Helper to determine media type from files in a reference
+  const getMediaType = (node: ProjectFileNode): 'image' | 'video' | 'audio' | 'mixed' | null => {
+    if (node.nodeType !== 'reference' || node.metadata?.refSubtype !== 'media') {
+      return null
+    }
+    
+    const mediaFiles = node.children?.filter(child => 
+      child.type === 'file' && 
+      !child.name.endsWith('.intent-ref.json')
+    ) || []
+    
+    const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp', 'ico']
+    const videoExtensions = ['mp4', 'avi', 'mov', 'wmv', 'flv', 'webm', 'mkv', 'm4v']
+    const audioExtensions = ['mp3', 'wav', 'flac', 'aac', 'ogg', 'wma', 'm4a']
+    
+    let hasImage = false
+    let hasVideo = false
+    let hasAudio = false
+    
+    for (const file of mediaFiles) {
+      const ext = file.name.split('.').pop()?.toLowerCase() || ''
+      if (imageExtensions.includes(ext)) hasImage = true
+      else if (videoExtensions.includes(ext)) hasVideo = true
+      else if (audioExtensions.includes(ext)) hasAudio = true
+    }
+    
+    // Return specific type if only one type present
+    const typeCount = [hasImage, hasVideo, hasAudio].filter(Boolean).length
+    if (typeCount === 1) {
+      if (hasImage) return 'image'
+      if (hasVideo) return 'video'
+      if (hasAudio) return 'audio'
+    } else if (typeCount > 1) {
+      return 'mixed'
+    }
+    
+    return null
+  }
+
   const getNodeIcon = (node: ProjectFileNode) => {
-    if (node.nodeType === 'project') return <Briefcase className="h-3 w-3" />
+    if (node.nodeType === 'project') {
+      return node.metadata?.emoji ? (
+        <span className="text-base leading-none">{node.metadata.emoji}</span>
+      ) : (
+        <Briefcase className="h-3 w-3" />
+      )
+    }
     if (node.name === 'References') return <BookOpen className="h-3 w-3" />
     if (node.name === 'Artifacts') return <Package className="h-3 w-3" />
     if (node.name === 'Unassigned References') return <FolderOpen className="h-3 w-3 text-orange-500" />
@@ -331,7 +459,20 @@ export function ProjectFileTree({
           case 'document':
             return <FileText className="h-3 w-3" />
           case 'media':
-            return <Image className="h-3 w-3" />
+            // Determine specific media type
+            const mediaType = getMediaType(node)
+            switch (mediaType) {
+              case 'image':
+                return <Image className="h-3 w-3" />
+              case 'video':
+                return <Video className="h-3 w-3" />
+              case 'audio':
+                return <Music className="h-3 w-3" />
+              case 'mixed':
+                return <FileImage className="h-3 w-3" />
+              default:
+                return <Image className="h-3 w-3" />
+            }
           default:
             return <Bookmark className="h-3 w-3" />
         }
@@ -365,6 +506,10 @@ export function ProjectFileTree({
     if (draggedNode && node.nodeType === 'project' && draggedNode.refId && node.projectId) {
       e.dataTransfer.dropEffect = 'move'
       setDragOverNode(node.path)
+    } else if (!draggedNode && (node.nodeType === 'project' || node.name === 'Unassigned References') && e.dataTransfer.types.includes('Files')) {
+      // Allow external file drops on projects and unassigned references
+      e.dataTransfer.dropEffect = 'copy'
+      setDragOverNode(node.path)
     }
   }
 
@@ -377,12 +522,38 @@ export function ProjectFileTree({
     setDragOverNode(null)
     
     if (draggedNode && draggedNode.refId && node.nodeType === 'project' && node.projectId && onMoveReference) {
+      // Handle internal reference drag
       try {
         await onMoveReference(draggedNode.refId, node.projectId)
         onRefresh?.()
       } catch (error) {
         console.error('Failed to move reference:', error)
       }
+    } else if (!draggedNode && e.dataTransfer.files.length > 0) {
+      // Handle external file drops
+      const files = Array.from(e.dataTransfer.files)
+      
+      if (node.nodeType === 'project' && node.projectId) {
+        // Drop on project - add to that project
+        for (const file of files) {
+          try {
+            await handleExternalFileDrop(file, node.projectId)
+          } catch (error) {
+            console.error('Failed to import file:', error)
+          }
+        }
+      } else if (node.name === 'Unassigned References') {
+        // Drop on unassigned - create without project assignment
+        for (const file of files) {
+          try {
+            await handleExternalFileDrop(file, null)
+          } catch (error) {
+            console.error('Failed to import file:', error)
+          }
+        }
+      }
+      
+      onRefresh?.()
     }
     
     setDraggedNode(null)
@@ -413,7 +584,7 @@ export function ProjectFileTree({
             className={cn(
               'w-full justify-start px-2 py-1 h-7 font-normal cursor-pointer group',
               isSelected && 'bg-accent',
-              isDragOver && 'bg-accent/50 border-2 border-primary',
+              isDragOver && 'bg-primary/20 border-2 border-primary border-dashed',
               node.nodeType === 'reference' && 'cursor-move',
               node.name === 'Unassigned References' && 'bg-orange-50 dark:bg-orange-950/20 border-l-2 border-orange-300 dark:border-orange-700'
             )}
@@ -428,7 +599,13 @@ export function ProjectFileTree({
               if (node.nodeType === 'reference' && node.metadata?.refType === 'artifact' && node.refId) {
                 onOpenArtifactView?.(node.refId, node.metadata.refSubtype || 'code')
               } else if (node.type === 'directory') {
-                toggleExpanded(node.path)
+                // Check if it's a media reference with a single file
+                const singleMediaFile = getSingleMediaFile(node)
+                if (singleMediaFile) {
+                  onSelectFile(singleMediaFile)
+                } else {
+                  toggleExpanded(node.path)
+                }
               } else {
                 onSelectFile(node.path)
               }
@@ -448,7 +625,7 @@ export function ProjectFileTree({
               </Badge>
             )}
             
-            {node.type === 'directory' && (
+            {node.type === 'directory' && !getSingleMediaFile(node) && (
               <span className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
                 {/* Show "show files" text for artifacts */}
                 {node.nodeType === 'reference' && node.metadata?.refType === 'artifact' && (

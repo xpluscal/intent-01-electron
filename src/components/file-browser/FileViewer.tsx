@@ -38,16 +38,42 @@ function getFileLanguage(filePath: string): string {
   }
 }
 
+// Determine if file is an image
+function isImageFile(filePath: string): boolean {
+  const ext = filePath.split('.').pop()?.toLowerCase() || ''
+  const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp', 'ico']
+  return imageExtensions.includes(ext)
+}
+
+// Determine if file is a video
+function isVideoFile(filePath: string): boolean {
+  const ext = filePath.split('.').pop()?.toLowerCase() || ''
+  const videoExtensions = ['mp4', 'avi', 'mov', 'wmv', 'flv', 'webm', 'mkv', 'm4v']
+  return videoExtensions.includes(ext)
+}
+
+// Determine if file is audio
+function isAudioFile(filePath: string): boolean {
+  const ext = filePath.split('.').pop()?.toLowerCase() || ''
+  const audioExtensions = ['mp3', 'wav', 'flac', 'aac', 'ogg', 'wma', 'm4a']
+  return audioExtensions.includes(ext)
+}
+
 export function FileViewer({ filePath, onClose }: FileViewerProps) {
   const [content, setContent] = useState<string>('')
   const [editedContent, setEditedContent] = useState<string>('')
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [hasChanges, setHasChanges] = useState(false)
+  const [mediaUrl, setMediaUrl] = useState<string | null>(null)
   const { readFile, writeFile } = useFileSystem()
 
   const fileName = filePath.split('/').pop() || ''
   const isMarkdown = fileName.endsWith('.md')
+  const isImage = isImageFile(filePath)
+  const isVideo = isVideoFile(filePath)
+  const isAudio = isAudioFile(filePath)
+  const isMedia = isImage || isVideo || isAudio
   const language = getFileLanguage(filePath)
 
   useEffect(() => {
@@ -55,6 +81,21 @@ export function FileViewer({ filePath, onClose }: FileViewerProps) {
   }, [filePath])
 
   const loadFile = async () => {
+    if (isMedia) {
+      // Load media URL for media files
+      setIsLoading(true)
+      try {
+        const url = await window.intentAPI.getFileUrl(filePath)
+        setMediaUrl(url)
+      } catch (error) {
+        console.error(error)
+        toast.error('Failed to load media file')
+      } finally {
+        setIsLoading(false)
+      }
+      return
+    }
+    
     setIsLoading(true)
     try {
       const fileContent = await readFile(filePath)
@@ -126,19 +167,21 @@ export function FileViewer({ filePath, onClose }: FileViewerProps) {
         </div>
         
         <div className="flex items-center gap-2 shrink-0">
-          <Button
-            size="sm"
-            variant={hasChanges ? "default" : "outline"}
-            onClick={handleSave}
-            disabled={!hasChanges || isSaving}
-          >
-            {isSaving ? (
-              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-            ) : (
-              <Save className="h-4 w-4 mr-1" />
-            )}
-            Save
-          </Button>
+          {!isMedia && (
+            <Button
+              size="sm"
+              variant={hasChanges ? "default" : "outline"}
+              onClick={handleSave}
+              disabled={!hasChanges || isSaving}
+            >
+              {isSaving ? (
+                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4 mr-1" />
+              )}
+              Save
+            </Button>
+          )}
           <Button
             size="icon"
             variant="ghost"
@@ -153,6 +196,38 @@ export function FileViewer({ filePath, onClose }: FileViewerProps) {
         {isLoading ? (
           <div className="h-full flex items-center justify-center">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : isMedia ? (
+          <div className="h-full flex items-center justify-center p-4 bg-muted/30">
+            {isImage && mediaUrl && (
+              <img 
+                src={mediaUrl} 
+                alt={fileName}
+                className="max-w-full max-h-full object-contain rounded shadow-lg"
+              />
+            )}
+            {isVideo && mediaUrl && (
+              <video 
+                src={mediaUrl} 
+                controls
+                className="max-w-full max-h-full rounded shadow-lg"
+              >
+                Your browser does not support the video tag.
+              </video>
+            )}
+            {isAudio && mediaUrl && (
+              <div className="flex flex-col items-center gap-4">
+                <div className="text-6xl">🎵</div>
+                <audio 
+                  src={mediaUrl} 
+                  controls
+                  className="w-80"
+                >
+                  Your browser does not support the audio tag.
+                </audio>
+                <p className="text-sm text-muted-foreground">{fileName}</p>
+              </div>
+            )}
           </div>
         ) : isMarkdown ? (
           <MarkdownEditor
@@ -171,8 +246,8 @@ export function FileViewer({ filePath, onClose }: FileViewerProps) {
       </div>
       
       <div className="border-t px-3 py-1 text-xs text-muted-foreground flex items-center justify-between">
-        <span>{language.charAt(0).toUpperCase() + language.slice(1)}</span>
-        <span>Press Cmd+S to save</span>
+        <span>{isMedia ? (isImage ? 'Image' : isVideo ? 'Video' : 'Audio') : language.charAt(0).toUpperCase() + language.slice(1)}</span>
+        <span>{!isMedia && 'Press Cmd+S to save'}</span>
       </div>
     </div>
   )

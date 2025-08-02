@@ -45,6 +45,7 @@ import { projectManager } from '@/lib/projectManager'
 import { toast } from 'sonner'
 import { useDialogKeyboard } from '@/hooks/useDialogKeyboard'
 import { KeyboardHint } from '../ui/keyboard-hint'
+import { EmojiPicker } from '../ui/emoji-picker'
 
 interface FileContextMenuProps {
   node: ProjectFileNode
@@ -74,8 +75,10 @@ export function FileContextMenu({
   const [editOpen, setEditOpen] = useState(false)
   const [editName, setEditName] = useState(node.name)
   const [editDescription, setEditDescription] = useState(node.metadata?.description || '')
+  const [editEmoji, setEditEmoji] = useState(node.metadata?.emoji || '📁')
   const [editType, setEditType] = useState<'reference' | 'artifact'>(node.metadata?.refType || 'reference')
   const [editSubtype, setEditSubtype] = useState(node.metadata?.refSubtype || 'document')
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
 
   const isProject = node.nodeType === 'project'
   const isReference = node.nodeType === 'reference'
@@ -110,7 +113,8 @@ export function FileContextMenu({
         // Update project
         await projectManager.updateProject(node.projectId, {
           name: editName,
-          description: editDescription
+          description: editDescription,
+          emoji: editEmoji
         })
         toast.success('Project updated successfully')
       } else if (isReference && node.refId) {
@@ -209,6 +213,34 @@ export function FileContextMenu({
     }
   }
 
+  const handleDeleteProject = async () => {
+    if (!node.projectId) return
+
+    try {
+      await projectManager.deleteProject(node.projectId)
+      toast.success('Project deleted successfully')
+      setDeleteConfirmOpen(false)
+      onRefresh()
+    } catch (error) {
+      console.error('Failed to delete project:', error)
+      toast.error('Failed to delete project')
+    }
+  }
+
+  const handleDeleteReference = async () => {
+    if (!node.refId) return
+
+    try {
+      await projectManager.deleteReference(node.refId)
+      toast.success('Reference deleted successfully')
+      setDeleteConfirmOpen(false)
+      onRefresh()
+    } catch (error) {
+      console.error('Failed to delete reference:', error)
+      toast.error('Failed to delete reference')
+    }
+  }
+
   const canCreateItems = node.type === 'directory' && 
     (isReference || (!node.nodeType && !node.path.startsWith('project:')))
 
@@ -270,9 +302,22 @@ export function FileContextMenu({
                   New Reference
                 </ContextMenuItem>
               )}
-              <ContextMenuItem onClick={() => setEditOpen(true)}>
+              <ContextMenuItem onClick={() => {
+                setEditName(node.name)
+                setEditDescription(node.metadata?.description || '')
+                setEditEmoji(node.metadata?.emoji || '📁')
+                setEditOpen(true)
+              }}>
                 <Edit className="mr-2 h-4 w-4" />
                 Edit Project
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+              <ContextMenuItem 
+                onClick={() => setDeleteConfirmOpen(true)}
+                className="text-destructive focus:text-destructive"
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete Project
               </ContextMenuItem>
               <ContextMenuSeparator />
             </>
@@ -290,9 +335,23 @@ export function FileContextMenu({
 
           {isReference && (
             <>
-              <ContextMenuItem onClick={() => setEditOpen(true)}>
+              <ContextMenuItem onClick={() => {
+                setEditName(node.name)
+                setEditDescription(node.metadata?.description || '')
+                setEditType(node.metadata?.refType || 'reference')
+                setEditSubtype(node.metadata?.refSubtype || 'document')
+                setEditOpen(true)
+              }}>
                 <Edit className="mr-2 h-4 w-4" />
                 Edit Reference
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+              <ContextMenuItem 
+                onClick={() => setDeleteConfirmOpen(true)}
+                className="text-destructive focus:text-destructive"
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete Reference
               </ContextMenuItem>
               <ContextMenuSeparator />
             </>
@@ -516,22 +575,49 @@ export function FileContextMenu({
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="edit-name">Name</Label>
-              <Input
-                id="edit-name"
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                placeholder={`${isProject ? 'Project' : 'Reference'} name`}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault()
-                    handleEdit()
-                  }
-                }}
-                autoFocus
-              />
-            </div>
+            {isProject ? (
+              <div className="flex gap-3">
+                <div>
+                  <Label>Icon</Label>
+                  <div className="mt-2">
+                    <EmojiPicker value={editEmoji} onChange={setEditEmoji} />
+                  </div>
+                </div>
+                <div className="flex-1 space-y-2">
+                  <Label htmlFor="edit-name">Name</Label>
+                  <Input
+                    id="edit-name"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    placeholder="Project name"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault()
+                        handleEdit()
+                      }
+                    }}
+                    autoFocus
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label htmlFor="edit-name">Name</Label>
+                <Input
+                  id="edit-name"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  placeholder="Reference name"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      handleEdit()
+                    }
+                  }}
+                  autoFocus
+                />
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="edit-description">Description</Label>
               <Textarea
@@ -602,6 +688,39 @@ export function FileContextMenu({
                 Save Changes
               </Button>
             </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {isProject ? 'Project' : 'Reference'}</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete "{node.name}"? This action cannot be undone.
+              {isProject && (
+                <p className="mt-2 text-sm text-destructive">
+                  Warning: This will permanently delete the project and all its assigned references.
+                </p>
+              )}
+              {isReference && (
+                <p className="mt-2 text-sm">
+                  Warning: This will permanently delete all files in this reference.
+                </p>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive" 
+              onClick={isProject ? handleDeleteProject : handleDeleteReference}
+            >
+              Delete {isProject ? 'Project' : 'Reference'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
