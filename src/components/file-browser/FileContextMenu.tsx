@@ -38,7 +38,8 @@ import {
   Scissors,
   RefreshCcw,
   Bookmark,
-  Briefcase
+  Briefcase,
+  BookOpen
 } from 'lucide-react'
 import { ProjectFileNode } from '@/types/projects'
 import { projectManager } from '@/lib/projectManager'
@@ -46,6 +47,7 @@ import { toast } from 'sonner'
 import { useDialogKeyboard } from '@/hooks/useDialogKeyboard'
 import { KeyboardHint } from '../ui/keyboard-hint'
 import { EmojiPicker } from '../ui/emoji-picker'
+import { ManageReadReferencesDialog } from '../dialogs/ManageReadReferencesDialog'
 
 interface FileContextMenuProps {
   node: ProjectFileNode
@@ -79,9 +81,11 @@ export function FileContextMenu({
   const [editType, setEditType] = useState<'reference' | 'artifact'>(node.metadata?.refType || 'reference')
   const [editSubtype, setEditSubtype] = useState(node.metadata?.refSubtype || 'document')
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [manageReadRefsOpen, setManageReadRefsOpen] = useState(false)
 
   const isProject = node.nodeType === 'project'
   const isReference = node.nodeType === 'reference'
+  const isArtifact = isReference && node.metadata?.refType === 'artifact'
   const isReferencesFolder = node.name === 'References'
   const isArtifactsFolder = node.name === 'Artifacts'
 
@@ -345,6 +349,14 @@ export function FileContextMenu({
                 <Edit className="mr-2 h-4 w-4" />
                 Edit Reference
               </ContextMenuItem>
+              {isArtifact && (
+                <>
+                  <ContextMenuItem onClick={() => setManageReadRefsOpen(true)}>
+                    <BookOpen className="mr-2 h-4 w-4" />
+                    Manage Context
+                  </ContextMenuItem>
+                </>
+              )}
               <ContextMenuSeparator />
               <ContextMenuItem 
                 onClick={() => setDeleteConfirmOpen(true)}
@@ -724,6 +736,17 @@ export function FileContextMenu({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Manage Read References Dialog */}
+      {isArtifact && node.refId && (
+        <ManageReadReferencesDialog
+          open={manageReadRefsOpen}
+          onOpenChange={setManageReadRefsOpen}
+          artifactId={node.refId}
+          artifactName={node.name}
+          projectId={node.projectId}
+        />
+      )}
     </>
   )
 }

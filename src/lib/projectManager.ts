@@ -271,6 +271,7 @@ export class ProjectManager {
     description?: string;
     type?: ReferenceType;
     subtype?: ReferenceSubtype;
+    readReferences?: string[];
   }): Promise<void> {
     const metadata = await this.loadRefMetadata(refId)
     
@@ -289,6 +290,9 @@ export class ProjectManager {
     }
     if (updates.subtype !== undefined) {
       metadata.reference.subtype = updates.subtype
+    }
+    if (updates.readReferences !== undefined) {
+      metadata.reference.readReferences = updates.readReferences
     }
     
     metadata.reference.modified = new Date()
@@ -336,6 +340,77 @@ export class ProjectManager {
     // Delete the reference directory
     const refPath = `refs/${refId}`
     await window.intentAPI.deleteFile(refPath)
+  }
+
+  // Add read reference to artifact
+  async addReadReference(artifactId: string, readRefId: string): Promise<void> {
+    const metadata = await this.loadRefMetadata(artifactId)
+    
+    if (!metadata) {
+      throw new Error(`Artifact ${artifactId} not found`)
+    }
+    
+    if (metadata.reference.type !== 'artifact') {
+      throw new Error(`Reference ${artifactId} is not an artifact`)
+    }
+    
+    // Prevent self-reference
+    if (artifactId === readRefId) {
+      throw new Error('An artifact cannot read from itself')
+    }
+    
+    // Initialize readReferences if not exists
+    if (!metadata.reference.readReferences) {
+      metadata.reference.readReferences = []
+    }
+    
+    // Add if not already present
+    if (!metadata.reference.readReferences.includes(readRefId)) {
+      metadata.reference.readReferences.push(readRefId)
+      metadata.reference.modified = new Date()
+      await this.saveRefMetadata(artifactId, metadata)
+    }
+  }
+
+  // Remove read reference from artifact
+  async removeReadReference(artifactId: string, readRefId: string): Promise<void> {
+    const metadata = await this.loadRefMetadata(artifactId)
+    
+    if (!metadata) {
+      throw new Error(`Artifact ${artifactId} not found`)
+    }
+    
+    if (metadata.reference.type !== 'artifact') {
+      throw new Error(`Reference ${artifactId} is not an artifact`)
+    }
+    
+    if (metadata.reference.readReferences) {
+      metadata.reference.readReferences = metadata.reference.readReferences.filter(id => id !== readRefId)
+      metadata.reference.modified = new Date()
+      await this.saveRefMetadata(artifactId, metadata)
+    }
+  }
+
+  // Get all read references for an artifact
+  async getReadReferences(artifactId: string): Promise<Reference[]> {
+    const metadata = await this.loadRefMetadata(artifactId)
+    
+    if (!metadata || metadata.reference.type !== 'artifact') {
+      return []
+    }
+    
+    const readRefs: Reference[] = []
+    
+    if (metadata.reference.readReferences) {
+      for (const refId of metadata.reference.readReferences) {
+        const refMetadata = await this.loadRefMetadata(refId)
+        if (refMetadata) {
+          readRefs.push(refMetadata.reference)
+        }
+      }
+    }
+    
+    return readRefs
   }
 
   // Helper to generate ID from name

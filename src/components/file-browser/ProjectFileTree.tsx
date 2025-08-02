@@ -39,6 +39,8 @@ export function ProjectFileTree({
   const [draggedNode, setDraggedNode] = useState<ProjectFileNode | null>(null)
   const [dragOverNode, setDragOverNode] = useState<string | null>(null)
   const [unassignedRefs, setUnassignedRefs] = useState<Reference[]>([])
+  const [hoveredArtifact, setHoveredArtifact] = useState<string | null>(null)
+  const [artifactReadRefs, setArtifactReadRefs] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     if (showProjects) {
@@ -169,7 +171,8 @@ export function ProjectFileTree({
               modified: ref.modified,
               description: ref.description,
               refType: ref.type,
-              refSubtype: ref.subtype
+              refSubtype: ref.subtype,
+              readRefCount: ref.readReferences?.length || 0
             }
           }
           artifactsNode.children?.push(refNode)
@@ -564,6 +567,7 @@ export function ProjectFileTree({
     const isSelected = selectedFile === node.path
     const isClickable = node.type === 'file' || (node.type === 'directory' && !node.path.startsWith('project:'))
     const isDragOver = dragOverNode === node.path
+    const isHighlighted = hoveredArtifact && node.refId && artifactReadRefs.has(node.refId)
 
     return (
       <div key={node.path}>
@@ -586,7 +590,8 @@ export function ProjectFileTree({
               isSelected && 'bg-accent',
               isDragOver && 'bg-primary/20 border-2 border-primary border-dashed',
               node.nodeType === 'reference' && 'cursor-move',
-              node.name === 'Unassigned References' && 'bg-orange-50 dark:bg-orange-950/20 border-l-2 border-orange-300 dark:border-orange-700'
+              node.name === 'Unassigned References' && 'bg-orange-50 dark:bg-orange-950/20 border-l-2 border-orange-300 dark:border-orange-700',
+              isHighlighted && 'bg-blue-100 dark:bg-blue-950 ring-1 ring-blue-300 dark:ring-blue-700'
             )}
             style={{ paddingLeft: `${8 + depth * 16}px` }}
             draggable={node.nodeType === 'reference'}
@@ -594,6 +599,25 @@ export function ProjectFileTree({
             onDragOver={(e) => handleDragOver(e, node)}
             onDragLeave={handleDragLeave}
             onDrop={(e) => handleDrop(e, node)}
+            onMouseEnter={async () => {
+              if (node.nodeType === 'reference' && node.metadata?.refType === 'artifact' && node.refId) {
+                setHoveredArtifact(node.refId)
+                // Load read references for this artifact
+                try {
+                  const readRefs = await projectManager.getReadReferences(node.refId)
+                  setArtifactReadRefs(new Set(readRefs.map(r => r.id)))
+                } catch (error) {
+                  console.error('Failed to load read references:', error)
+                  setArtifactReadRefs(new Set())
+                }
+              }
+            }}
+            onMouseLeave={() => {
+              if (hoveredArtifact) {
+                setHoveredArtifact(null)
+                setArtifactReadRefs(new Set())
+              }
+            }}
             onClick={() => {
               // Special handling for artifact references
               if (node.nodeType === 'reference' && node.metadata?.refType === 'artifact' && node.refId) {
@@ -622,6 +646,14 @@ export function ProjectFileTree({
                     .length
                   : 0
                 } projects
+              </Badge>
+            )}
+            
+            {/* Show read references count for artifacts */}
+            {node.nodeType === 'reference' && node.metadata?.refType === 'artifact' && node.metadata?.readRefCount !== undefined && node.metadata.readRefCount > 0 && (
+              <Badge variant="outline" className="ml-1 text-xs px-1 py-0" title="Read references">
+                <BookOpen className="h-3 w-3 mr-1" />
+                {node.metadata.readRefCount}
               </Badge>
             )}
             

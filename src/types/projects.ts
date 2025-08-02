@@ -33,6 +33,7 @@ export interface Reference {
   type: ReferenceType
   subtype: ReferenceSubtype
   projects: string[] // Project IDs this ref belongs to
+  readReferences?: string[] // Reference IDs this artifact can read from (only for artifacts)
   source?: {
     type: 'git' | 'local'
     url?: string
@@ -68,5 +69,6 @@ export interface ProjectFileNode {
     refType?: ReferenceType
     refSubtype?: ReferenceSubtype
     emoji?: string
+    readRefCount?: number
   }
 }
