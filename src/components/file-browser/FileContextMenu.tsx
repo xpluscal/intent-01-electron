@@ -278,6 +278,16 @@ export function FileContextMenu({
             </>
           )}
 
+          {isReferencesFolder && onCreateReference && (
+            <>
+              <ContextMenuItem onClick={onCreateReference}>
+                <Bookmark className="mr-2 h-4 w-4" />
+                New Reference
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+            </>
+          )}
+
           {isReference && (
             <>
               <ContextMenuItem onClick={() => setEditOpen(true)}>

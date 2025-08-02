@@ -186,6 +186,15 @@ export function SimplifiedProjectBrowser() {
     setSelectedFile(null) // Clear file selection when opening artifact view
   }
 
+  const handleSelectFile = (filePath: string) => {
+    setSelectedFile(filePath)
+    setArtifactView(null) // Clear artifact view when selecting a file
+  }
+
+  const handleCloseFile = () => {
+    setSelectedFile(null)
+  }
+
   return (
     <>
       <ResizablePanelGroup direction="horizontal" className="h-full">
@@ -226,7 +235,7 @@ export function SimplifiedProjectBrowser() {
                 <ProjectFileTree
                   key={refreshKey}
                   projects={projects}
-                  onSelectFile={setSelectedFile}
+                  onSelectFile={handleSelectFile}
                   selectedFile={selectedFile}
                   showProjects={true}
                   loading={loading}
@@ -275,7 +284,7 @@ export function SimplifiedProjectBrowser() {
           ) : selectedFile ? (
             <FileViewer 
               filePath={selectedFile}
-              onClose={() => setSelectedFile(null)}
+              onClose={handleCloseFile}
             />
           ) : (
             <div className="h-full flex items-center justify-center text-muted-foreground">

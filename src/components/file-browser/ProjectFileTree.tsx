@@ -400,7 +400,11 @@ export function ProjectFileTree({
           node={node} 
           onRefresh={() => onRefresh?.()}
           onOpenFile={onSelectFile}
-          onCreateReference={node.nodeType === 'project' && node.projectId ? () => onCreateReference?.(node.projectId) : undefined}
+          onCreateReference={
+            (node.nodeType === 'project' && node.projectId) || (node.name === 'References' && node.projectId)
+              ? () => onCreateReference?.(node.projectId) 
+              : undefined
+          }
           projects={projects.map(p => ({ id: p.id, name: p.name }))}
         >
           <Button
