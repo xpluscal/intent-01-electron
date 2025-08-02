@@ -82,20 +82,39 @@ const safeDOM = {
  * https://matejkustec.github.io/SpinThatShit
  */
 function useLoading() {
-  const className = `loaders-css__square-spin`
   const styleContent = `
-@keyframes square-spin {
-  25% { transform: perspective(100px) rotateX(180deg) rotateY(0); }
-  50% { transform: perspective(100px) rotateX(180deg) rotateY(180deg); }
-  75% { transform: perspective(100px) rotateX(0) rotateY(180deg); }
-  100% { transform: perspective(100px) rotateX(0) rotateY(0); }
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
-.${className} > div {
-  animation-fill-mode: both;
-  width: 50px;
-  height: 50px;
-  background: #fff;
-  animation: square-spin 3s 0s cubic-bezier(0.09, 0.57, 0.49, 0.9) infinite;
+@keyframes loading-dots {
+  0% { content: ''; }
+  25% { content: '.'; }
+  50% { content: '..'; }
+  75% { content: '...'; }
+  100% { content: ''; }
+}
+.retro-loader {
+  font-family: "Fira Code", monospace;
+  /* Primary color from dark theme */
+  color: oklch(0.7 0.16 70);
+  font-size: 11px;
+  line-height: 12px;
+  white-space: pre;
+  animation: pulse 2s ease-in-out infinite;
+}
+.loading-text {
+  font-family: "Fira Code", monospace;
+  /* Muted foreground from dark theme */
+  color: oklch(0.7 0.03 90);
+  font-size: 12px;
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+}
+.loading-text::after {
+  content: '';
+  animation: loading-dots 1.5s steps(4, end) infinite;
 }
 .app-loading-wrap {
   position: fixed;
@@ -104,10 +123,41 @@ function useLoading() {
   width: 100vw;
   height: 100vh;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: #282c34;
+  /* Background from dark theme */
+  background: oklch(0.25 0.04 80);
   z-index: 9;
+}
+.loading-footer {
+  position: absolute;
+  bottom: 20px;
+  font-family: "Fira Code", monospace;
+  font-size: 9px;
+  /* Muted foreground with lower opacity */
+  color: oklch(0.7 0.03 90 / 0.5);
+  text-align: center;
+  line-height: 1.4;
+}
+/* Support for light mode if system prefers it */
+@media (prefers-color-scheme: light) {
+  .retro-loader {
+    /* Primary color from light theme */
+    color: oklch(0.65 0.15 70);
+  }
+  .loading-text {
+    /* Muted foreground from light theme */
+    color: oklch(0.5 0.03 80);
+  }
+  .app-loading-wrap {
+    /* Background from light theme */
+    background: oklch(0.98 0.02 90);
+  }
+  .loading-footer {
+    /* Muted foreground with lower opacity */
+    color: oklch(0.5 0.03 80 / 0.5);
+  }
 }
     `
   const oStyle = document.createElement('style')
@@ -116,7 +166,16 @@ function useLoading() {
   oStyle.id = 'app-loading-style'
   oStyle.innerHTML = styleContent
   oDiv.className = 'app-loading-wrap'
-  oDiv.innerHTML = `<div class="${className}"><div></div></div>`
+  oDiv.innerHTML = `
+    <div class="retro-loader">╦╔╗╔╔╦╗╔═╗╔╗╔╔╦╗ ╔═╗╦
+║║║║ ║ ╠╣ ║║║ ║  ║ ║║
+╩╝╚╝ ╩ ╚═╝╝╚╝ ╩  ╚═╝╩</div>
+    <div class="loading-text">INITIALIZING</div>
+    <div class="loading-footer">
+      <div>INTENT WORKER v1.0.0</div>
+      <div>© 2024 RESONANCE LABS</div>
+    </div>
+  `
 
   return {
     appendLoading() {

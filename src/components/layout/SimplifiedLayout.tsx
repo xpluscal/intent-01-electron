@@ -14,9 +14,15 @@ export function SimplifiedLayout({ children }: SimplifiedLayoutProps) {
   return (
     <div className="h-screen flex flex-col">
       {/* Top Navigation */}
-      <header className="h-14 border-b flex items-center justify-between px-4">
+      <header className="h-12 border-b flex items-center justify-between px-4">
         <div className="flex items-center gap-4">
-          <h1 className="text-lg font-semibold uppercase">Intent - 01</h1>
+          <div className="font-mono text-[9px] leading-[10px] text-primary select-none">
+            <pre className="whitespace-pre">
+{`╦╔╗╔╔╦╗╔═╗╔╗╔╔╦╗ ╔═╗╦
+║║║║ ║ ╠╣ ║║║ ║  ║ ║║
+╩╝╚╝ ╩ ╚═╝╝╚╝ ╩  ╚═╝╩`}
+            </pre>
+          </div>
         </div>
         
         <div className="flex items-center gap-2">
