@@ -6,15 +6,15 @@ import { createRequire } from "node:module";
 import { URL, fileURLToPath } from "node:url";
 import path from "node:path";
 import os from "node:os";
+import { spawn, exec } from "node:child_process";
+import { promisify as promisify$1 } from "node:util";
 import { EventEmitter } from "node:events";
 import express from "express";
 import cors from "cors";
 import sqlite3 from "sqlite3";
 import fs, { promises } from "node:fs";
 import dotenv from "dotenv";
-import { spawn, exec } from "node:child_process";
 import { promisify } from "util";
-import { promisify as promisify$1 } from "node:util";
 import { v4 } from "uuid";
 import axios from "axios";
 import net from "node:net";
@@ -1014,7 +1014,7 @@ class StreamHandler {
     return data.toString("utf8").trim();
   }
 }
-const execAsync = promisify(exec);
+const execAsync$1 = promisify(exec);
 class RefManager {
   constructor(workspacePath, performanceMonitor = null) {
     this.workspacePath = workspacePath;
@@ -1047,7 +1047,7 @@ class RefManager {
    */
   async _execGitInternal(cwd, command, options = {}) {
     try {
-      const { stdout, stderr } = await execAsync(`git ${command}`, {
+      const { stdout, stderr } = await execAsync$1(`git ${command}`, {
         cwd,
         encoding: options.encoding || "utf8",
         maxBuffer: 10 * 1024 * 1024,
@@ -7916,6 +7916,12 @@ async function createWindow() {
 }
 app.whenReady().then(async () => {
   try {
+    const { stdout } = await execAsync("git --version");
+    console.log("Git is installed:", stdout.trim());
+  } catch (error) {
+    console.warn("Git is not installed. Some features may not work properly.");
+  }
+  try {
     intentServer = new IntentServer({ port: 3456 });
     await intentServer.start();
     console.log("Intent server started successfully on port 3456");
@@ -8164,6 +8170,60 @@ ipcMain.handle("intent:get-file-url", async (event, filePath) => {
     mimeType = mimeTypes[ext];
   }
   return `data:${mimeType};base64,${buffer.toString("base64")}`;
+});
+const execAsync = promisify$1(exec);
+ipcMain.handle("intent:check-git", async () => {
+  try {
+    const { stdout } = await execAsync("git --version");
+    return { installed: true, version: stdout.trim() };
+  } catch (error) {
+    return { installed: false };
+  }
+});
+ipcMain.handle("intent:init-git", async (event, refPath) => {
+  const userDataPath = app.getPath("userData");
+  const workspacePath = path.join(userDataPath, "intent-workspace");
+  const fullPath = path.join(workspacePath, refPath);
+  if (!fullPath.startsWith(workspacePath)) {
+    throw new Error("Access denied: Path outside workspace");
+  }
+  try {
+    await execAsync("git init", { cwd: fullPath });
+    const gitignoreContent = `# Intent Worker
+.DS_Store
+node_modules/
+*.log
+.env
+.env.local
+`;
+    const { promises: fs2 } = await import("node:fs");
+    await fs2.writeFile(path.join(fullPath, ".gitignore"), gitignoreContent);
+    await execAsync("git add .", { cwd: fullPath });
+    await execAsync('git commit -m "Initial commit"', { cwd: fullPath });
+    return { success: true };
+  } catch (error) {
+    console.error("Git init error:", error);
+    return { success: false, error: error.message };
+  }
+});
+ipcMain.handle("intent:install-git", async () => {
+  const platform = os.platform();
+  try {
+    if (platform === "darwin") {
+      await execAsync("xcode-select --install");
+      return { success: true, message: "Git installation initiated. Please follow the system prompts." };
+    } else if (platform === "win32") {
+      shell.openExternal("https://git-scm.com/download/win");
+      return { success: true, message: "Please download and install Git from the opened webpage." };
+    } else {
+      return {
+        success: false,
+        message: "Please install Git using your package manager:\nUbuntu/Debian: sudo apt-get install git\nFedora: sudo dnf install git\nArch: sudo pacman -S git"
+      };
+    }
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
 });
 export {
   MAIN_DIST,

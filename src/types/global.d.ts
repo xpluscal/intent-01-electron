@@ -29,6 +29,11 @@ interface IntentAPI {
   // Project management
   scanRefs: () => Promise<Array<{ id: string; name: string; path: string }>>
   checkMetadataExists: (filePath: string) => Promise<boolean>
+  
+  // Git operations
+  checkGit: () => Promise<{ installed: boolean; version?: string }>
+  initGit: (refPath: string) => Promise<{ success: boolean; error?: string }>
+  installGit: () => Promise<{ success: boolean; message?: string; error?: string }>
 }
 
 declare global {

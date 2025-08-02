@@ -3,6 +3,8 @@ import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import os from 'node:os'
+import { exec } from 'node:child_process'
+import { promisify } from 'node:util'
 import { update } from './update'
 import { IntentServer } from './serverIntegration'
 
@@ -88,6 +90,15 @@ async function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  // Check for Git installation
+  try {
+    const { stdout } = await execAsync('git --version')
+    console.log('Git is installed:', stdout.trim())
+  } catch (error) {
+    console.warn('Git is not installed. Some features may not work properly.')
+    // We'll handle the installation prompt in the renderer process
+  }
+  
   // Start Intent server first
   try {
     intentServer = new IntentServer({ port: 3456 })
@@ -407,4 +418,82 @@ ipcMain.handle('intent:get-file-url', async (event, filePath) => {
   
   // Return data URL
   return `data:${mimeType};base64,${buffer.toString('base64')}`
+})
+
+// Git-related handlers
+const execAsync = promisify(exec)
+
+// Check if Git is installed
+ipcMain.handle('intent:check-git', async () => {
+  try {
+    const { stdout } = await execAsync('git --version')
+    return { installed: true, version: stdout.trim() }
+  } catch (error) {
+    return { installed: false }
+  }
+})
+
+// Initialize Git repository
+ipcMain.handle('intent:init-git', async (event, refPath) => {
+  const userDataPath = app.getPath('userData')
+  const workspacePath = path.join(userDataPath, 'intent-workspace')
+  const fullPath = path.join(workspacePath, refPath)
+  
+  if (!fullPath.startsWith(workspacePath)) {
+    throw new Error('Access denied: Path outside workspace')
+  }
+  
+  try {
+    // Initialize git repo
+    await execAsync('git init', { cwd: fullPath })
+    
+    // Create .gitignore
+    const gitignoreContent = `# Intent Worker
+.DS_Store
+node_modules/
+*.log
+.env
+.env.local
+`
+    const { promises: fs } = await import('node:fs')
+    await fs.writeFile(path.join(fullPath, '.gitignore'), gitignoreContent)
+    
+    // Initial commit
+    await execAsync('git add .', { cwd: fullPath })
+    await execAsync('git commit -m "Initial commit"', { cwd: fullPath })
+    
+    return { success: true }
+  } catch (error) {
+    console.error('Git init error:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+// Install Git if not present (macOS/Windows)
+ipcMain.handle('intent:install-git', async () => {
+  const platform = os.platform()
+  
+  try {
+    if (platform === 'darwin') {
+      // On macOS, try to trigger Xcode command line tools installation
+      // This will prompt the user to install if not present
+      await execAsync('xcode-select --install')
+      return { success: true, message: 'Git installation initiated. Please follow the system prompts.' }
+    } else if (platform === 'win32') {
+      // On Windows, open the Git download page
+      shell.openExternal('https://git-scm.com/download/win')
+      return { success: true, message: 'Please download and install Git from the opened webpage.' }
+    } else {
+      // On Linux, provide package manager commands
+      return { 
+        success: false, 
+        message: 'Please install Git using your package manager:\n' +
+                 'Ubuntu/Debian: sudo apt-get install git\n' +
+                 'Fedora: sudo dnf install git\n' +
+                 'Arch: sudo pacman -S git'
+      }
+    }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
 })

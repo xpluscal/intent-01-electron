@@ -6,8 +6,34 @@ import { SignInButton, SignUpButton } from "@clerk/clerk-react";
 import { SimplifiedLayout } from './components/layout/SimplifiedLayout'
 import { SimplifiedProjectBrowser } from './components/file-browser/SimplifiedProjectBrowser'
 import { Toaster } from './components/ui/sonner'
+import { GitCheckDialog } from './components/dialogs/GitCheckDialog'
+import { useState, useEffect } from 'react'
 
 export default function App() {
+  const [gitCheckOpen, setGitCheckOpen] = useState(false)
+  const [hasCheckedGit, setHasCheckedGit] = useState(false)
+
+  useEffect(() => {
+    // Check Git installation once when authenticated
+    const checkGitOnce = async () => {
+      if (hasCheckedGit) return
+      
+      try {
+        const result = await window.intentAPI.checkGit()
+        if (!result.installed) {
+          setGitCheckOpen(true)
+        }
+        setHasCheckedGit(true)
+      } catch (error) {
+        console.error('Failed to check Git:', error)
+      }
+    }
+    
+    // Delay check slightly to ensure app is fully loaded
+    const timer = setTimeout(checkGitOnce, 1000)
+    return () => clearTimeout(timer)
+  }, [hasCheckedGit])
+
   return (
     <BrowserRouter>
       <Toaster />
@@ -15,6 +41,7 @@ export default function App() {
         <SimplifiedLayout>
           <SimplifiedProjectBrowser />
         </SimplifiedLayout>
+        <GitCheckDialog open={gitCheckOpen} onOpenChange={setGitCheckOpen} />
       </Authenticated>
       <Unauthenticated>
         <SignInForm />

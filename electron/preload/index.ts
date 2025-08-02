@@ -45,6 +45,11 @@ contextBridge.exposeInMainWorld('intentAPI', {
   // Project management
   scanRefs: () => ipcRenderer.invoke('intent:scan-refs'),
   checkMetadataExists: (filePath: string) => ipcRenderer.invoke('intent:check-metadata-exists', filePath),
+  
+  // Git operations
+  checkGit: () => ipcRenderer.invoke('intent:check-git'),
+  initGit: (refPath: string) => ipcRenderer.invoke('intent:init-git', refPath),
+  installGit: () => ipcRenderer.invoke('intent:install-git'),
 })
 
 // --------- Preload scripts loading ---------
@@ -172,8 +177,8 @@ function useLoading() {
 ╩╝╚╝ ╩ ╚═╝╝╚╝ ╩  ╚═╝╩</div>
     <div class="loading-text">INITIALIZING</div>
     <div class="loading-footer">
-      <div>INTENT WORKER v1.0.0</div>
-      <div>© 2024 RESONANCE LABS</div>
+      <div>INTENT-01</div>
+      <div>© 2025 RESONANCE LABS</div>
     </div>
   `
 

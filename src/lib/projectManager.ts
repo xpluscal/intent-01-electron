@@ -150,6 +150,19 @@ export class ProjectManager {
     }
     
     await this.saveRefMetadata(refId, metadata)
+    
+    // Initialize Git repository for this reference
+    try {
+      const result = await window.intentAPI.initGit(`refs/${refId}`)
+      if (result.success) {
+        console.log(`Git repository initialized for ${type} ${refId}`)
+      } else {
+        console.warn(`Failed to initialize Git for ${refId}:`, result.error)
+      }
+    } catch (error) {
+      console.error(`Error initializing Git for ${refId}:`, error)
+    }
+    
     return reference
   }
 
