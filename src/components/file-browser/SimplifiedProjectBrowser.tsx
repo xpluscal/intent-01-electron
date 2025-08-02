@@ -306,7 +306,7 @@ export function SimplifiedProjectBrowser() {
   return (
     <>
       <ResizablePanelGroup direction="horizontal" className="h-full">
-        <ResizablePanel defaultSize={20} minSize={20} maxSize={50}>
+        <ResizablePanel defaultSize={15} minSize={15} maxSize={50}>
           <div className="h-full flex flex-col">
             {/* Header with add button */}
             <div className="border-b p-2 flex items-center justify-between">
