@@ -197,7 +197,7 @@ ${arg.stack}`;
 function createLogger(name) {
   return new Logger(name);
 }
-const logger$k = createLogger("database");
+const logger$l = createLogger("database");
 class Database {
   constructor(dbPath = "./data/agent-wrapper.db") {
     __publicField(this, "dbPath");
@@ -215,7 +215,7 @@ class Database {
         if (err) {
           reject(err);
         } else {
-          logger$k.info("Connected to SQLite database");
+          logger$l.info("Connected to SQLite database");
           resolve();
         }
       });
@@ -509,7 +509,7 @@ class Database {
     });
   }
   async runMigrations() {
-    logger$k.info("All schema updates are handled in createTables()");
+    logger$l.info("All schema updates are handled in createTables()");
   }
   async close() {
     return new Promise((resolve, reject) => {
@@ -521,7 +521,7 @@ class Database {
         if (err) {
           reject(err);
         } else {
-          logger$k.info("Database connection closed");
+          logger$l.info("Database connection closed");
           resolve();
         }
       });
@@ -748,7 +748,7 @@ class WorkspaceManager {
     return path.join(this.workspacePath, ".execution");
   }
 }
-const logger$j = createLogger("ProcessManager");
+const logger$k = createLogger("ProcessManager");
 class ProcessManager {
   constructor(db, config2, eventEmitter) {
     __publicField(this, "db");
@@ -767,7 +767,7 @@ class ProcessManager {
       }
       const resolvedWorkingDir = this.validateWorkingDir(workingDir);
       await this.updateProcessStatus(executionId, ExecutionStatus.STARTING);
-      logger$j.info(`Spawning ${agent} process`, { executionId, workingDir: resolvedWorkingDir, isContinuation });
+      logger$k.info(`Spawning ${agent} process`, { executionId, workingDir: resolvedWorkingDir, isContinuation });
       const { cmd, args } = this.buildCommand(agent, prompt, resolvedWorkingDir, isContinuation);
       const childProcess = spawn(cmd, args, {
         cwd: resolvedWorkingDir,
@@ -777,7 +777,7 @@ class ProcessManager {
       });
       this.activeProcesses.set(executionId, childProcess);
       childProcess.on("spawn", () => {
-        logger$j.info(`Process started`, { executionId, pid: childProcess.pid });
+        logger$k.info(`Process started`, { executionId, pid: childProcess.pid });
         this.updateProcessStatus(executionId, ExecutionStatus.RUNNING, childProcess.pid);
         this.eventEmitter.emit(Events.PROCESS_START, { executionId, pid: childProcess.pid });
         if (agent === "claude" && this.config.agents.claude.defaultArgs.includes("--print")) {
@@ -790,7 +790,7 @@ class ProcessManager {
       childProcess.on("error", (error) => {
         this.handleProcessError(executionId, error);
       });
-      logger$j.info(`Spawning command`, {
+      logger$k.info(`Spawning command`, {
         executionId,
         command: cmd,
         args,
@@ -805,7 +805,7 @@ class ProcessManager {
       childProcess.once("spawn", () => clearTimeout(spawnTimeout));
       return childProcess;
     } catch (error) {
-      logger$j.error(`Failed to spawn process`, { executionId, error });
+      logger$k.error(`Failed to spawn process`, { executionId, error });
       await this.updateProcessStatus(executionId, ExecutionStatus.FAILED);
       throw error;
     }
@@ -863,14 +863,14 @@ class ProcessManager {
   async terminate(executionId) {
     const process2 = this.getProcess(executionId);
     if (!process2) {
-      logger$j.warn(`No process found for execution ${executionId}`);
+      logger$k.warn(`No process found for execution ${executionId}`);
       return;
     }
-    logger$j.info(`Terminating process for execution ${executionId}`);
+    logger$k.info(`Terminating process for execution ${executionId}`);
     process2.kill("SIGTERM");
     setTimeout(() => {
       if (this.getProcess(executionId)) {
-        logger$j.warn(`Force killing process for execution ${executionId}`);
+        logger$k.warn(`Force killing process for execution ${executionId}`);
         process2.kill("SIGKILL");
       }
     }, 5e3);
@@ -899,7 +899,7 @@ class ProcessManager {
     );
   }
   async handleProcessExit(executionId, code, signal) {
-    logger$j.info(`Process exited`, { executionId, code, signal });
+    logger$k.info(`Process exited`, { executionId, code, signal });
     this.activeProcesses.delete(executionId);
     const status = code === 0 ? ExecutionStatus.COMPLETED : ExecutionStatus.FAILED;
     await this.updateProcessStatus(executionId, status);
@@ -907,7 +907,7 @@ class ProcessManager {
     this.eventEmitter.emit(Events.BUFFER_FLUSH, { executionId });
   }
   async handleProcessError(executionId, error) {
-    logger$j.error(`Process error`, { executionId, error });
+    logger$k.error(`Process error`, { executionId, error });
     this.activeProcesses.delete(executionId);
     await this.updateProcessStatus(executionId, ExecutionStatus.FAILED);
     await this.db.run(
@@ -925,12 +925,12 @@ class ProcessManager {
       try {
         await this.terminate(executionId);
       } catch (error) {
-        logger$j.error(`Failed to terminate process ${executionId}:`, error);
+        logger$k.error(`Failed to terminate process ${executionId}:`, error);
       }
     }
   }
 }
-const logger$i = createLogger("StreamHandler");
+const logger$j = createLogger("StreamHandler");
 class StreamHandler {
   constructor(db, eventEmitter) {
     __publicField(this, "db");
@@ -944,19 +944,19 @@ class StreamHandler {
     try {
       const content = data.toString("utf8");
       if (process.env.SHOW_PROCESS_OUTPUT === "true") {
-        logger$i.debug(`Process ${stream}`, { executionId, content: content.trim() });
+        logger$j.debug(`Process ${stream}`, { executionId, content: content.trim() });
       }
       this.appendToBuffer(executionId, content);
       await this.processCompleteLines(executionId, stream);
     } catch (error) {
-      logger$i.error(`Error handling output`, { executionId, error });
+      logger$j.error(`Error handling output`, { executionId, error });
     }
   }
   appendToBuffer(executionId, data) {
     let buffer = this.buffers.get(executionId) || "";
     buffer += data;
     if (buffer.length > Limits.MAX_BUFFER_SIZE) {
-      logger$i.warn(`Buffer size exceeded, truncating`, { executionId, size: buffer.length });
+      logger$j.warn(`Buffer size exceeded, truncating`, { executionId, size: buffer.length });
       buffer = buffer.slice(-1048576);
     }
     this.buffers.set(executionId, buffer);
@@ -980,7 +980,7 @@ class StreamHandler {
   async flushBuffer(executionId) {
     const buffer = this.buffers.get(executionId);
     if (buffer && buffer.length > 0) {
-      logger$i.debug(`Flushing buffer`, { executionId, length: buffer.length });
+      logger$j.debug(`Flushing buffer`, { executionId, length: buffer.length });
       await this.saveLog(executionId, LogType.STDOUT, buffer);
       this.emitLogEvent(executionId, {
         timestamp: (/* @__PURE__ */ new Date()).toISOString(),
@@ -1001,7 +1001,7 @@ class StreamHandler {
         [executionId, type, truncatedContent]
       );
     } catch (error) {
-      logger$i.error(`Failed to save log`, { executionId, error });
+      logger$j.error(`Failed to save log`, { executionId, error });
     }
   }
   emitLogEvent(executionId, logEntry) {
@@ -1930,7 +1930,7 @@ Created from execution: ${executionId}`;
     return files;
   }
 }
-const logger$h = createLogger("IntegrationManager");
+const logger$i = createLogger("IntegrationManager");
 class IntegrationManager {
   constructor(workspaceManager, refManager2, contextManager, changeManager, db) {
     this.workspaceManager = workspaceManager;
@@ -1944,10 +1944,10 @@ class IntegrationManager {
    */
   async integrateExecutionChanges(executionId, options = {}) {
     try {
-      logger$h.info(`Starting integration for execution ${executionId}`);
+      logger$i.info(`Starting integration for execution ${executionId}`);
       const manifest = await this.contextManager.getExecutionManifest(executionId);
       if (!manifest) {
-        logger$h.warn(`No manifest found for execution ${executionId}`);
+        logger$i.warn(`No manifest found for execution ${executionId}`);
         return { success: false, message: "No execution manifest found" };
       }
       const results = await this.changeManager.processExecutionChanges(executionId, {
@@ -1958,7 +1958,7 @@ class IntegrationManager {
       await this.saveChangeRecords(executionId, results);
       const hasSyncFailures = Object.values(results.merges || {}).some((m) => !m.synced);
       if (hasSyncFailures) {
-        logger$h.warn(`Execution ${executionId} had sync failures`);
+        logger$i.warn(`Execution ${executionId} had sync failures`);
         await this.markExecutionNeedsReview(executionId, "sync_failures");
         const failureDetails = Object.entries(results.merges || {}).filter(([refId, result]) => !result.synced).reduce((acc, [refId, result]) => {
           acc[refId] = {
@@ -1976,18 +1976,18 @@ class IntegrationManager {
       if (options.cleanup !== false && !hasSyncFailures) {
         try {
           await this.contextManager.cleanupExecutionWorkspace(executionId);
-          logger$h.info(`Cleaned up workspace for execution ${executionId}`);
+          logger$i.info(`Cleaned up workspace for execution ${executionId}`);
         } catch (error) {
-          logger$h.error(`Failed to clean up workspace for execution ${executionId}:`, error);
+          logger$i.error(`Failed to clean up workspace for execution ${executionId}:`, error);
         }
       }
-      logger$h.info(`Integration completed for execution ${executionId}`, results);
+      logger$i.info(`Integration completed for execution ${executionId}`, results);
       return {
         success: true,
         results
       };
     } catch (error) {
-      logger$h.error(`Integration failed for execution ${executionId}:`, error);
+      logger$i.error(`Integration failed for execution ${executionId}:`, error);
       return {
         success: false,
         error: error.message
@@ -2042,9 +2042,9 @@ Created from execution: ${executionId}`]
         "UPDATE executions SET status = ?, needs_review = 1, review_reason = ? WHERE id = ?",
         ["needs_review", reason, executionId]
       );
-      logger$h.info(`Marked execution ${executionId} as needing review: ${reason}`);
+      logger$i.info(`Marked execution ${executionId} as needing review: ${reason}`);
     } catch (error) {
-      logger$h.error(`Failed to mark execution ${executionId} as needing review:`, error);
+      logger$i.error(`Failed to mark execution ${executionId} as needing review:`, error);
       throw error;
     }
   }
@@ -2086,7 +2086,7 @@ Created from execution: ${executionId}`]
     };
   }
 }
-const logger$g = createLogger("ResourceMonitor");
+const logger$h = createLogger("ResourceMonitor");
 class ResourceMonitor {
   constructor(workspaceManager, db, options = {}) {
     this.workspaceManager = workspaceManager;
@@ -2107,13 +2107,13 @@ class ResourceMonitor {
    */
   start() {
     if (this.intervalId) {
-      logger$g.warn("Resource monitoring already started");
+      logger$h.warn("Resource monitoring already started");
       return;
     }
-    logger$g.info("Starting resource monitoring with limits:", this.limits);
+    logger$h.info("Starting resource monitoring with limits:", this.limits);
     this.intervalId = setInterval(() => {
       this.performResourceCheck().catch((error) => {
-        logger$g.error("Resource check failed:", error);
+        logger$h.error("Resource check failed:", error);
       });
     }, this.checkInterval);
   }
@@ -2124,7 +2124,7 @@ class ResourceMonitor {
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = null;
-      logger$g.info("Resource monitoring stopped");
+      logger$h.info("Resource monitoring stopped");
     }
   }
   /**
@@ -2158,7 +2158,7 @@ class ResourceMonitor {
         message: allowed ? null : `Maximum concurrent executions (${this.limits.maxConcurrentExecutions}) reached`
       };
     } catch (error) {
-      logger$g.error("Failed to check concurrent executions:", error);
+      logger$h.error("Failed to check concurrent executions:", error);
       return { type: "concurrent_executions", allowed: false, error: error.message };
     }
   }
@@ -2179,7 +2179,7 @@ class ResourceMonitor {
         message: allowed ? null : `Disk usage (${usageMB.toFixed(2)}MB) exceeds limit (${this.limits.maxDiskUsageMB}MB)`
       };
     } catch (error) {
-      logger$g.error("Failed to check disk usage:", error);
+      logger$h.error("Failed to check disk usage:", error);
       return { type: "disk_usage", allowed: true, error: error.message };
     }
   }
@@ -2202,7 +2202,7 @@ class ResourceMonitor {
         message: memoryOk ? null : `High memory usage: ${memUsageMB.toFixed(2)}MB`
       };
     } catch (error) {
-      logger$g.error("Failed to check system resources:", error);
+      logger$h.error("Failed to check system resources:", error);
       return { type: "system_resources", allowed: true, error: error.message };
     }
   }
@@ -2210,7 +2210,7 @@ class ResourceMonitor {
    * Perform periodic resource check and cleanup
    */
   async performResourceCheck() {
-    logger$g.debug("Performing resource check");
+    logger$h.debug("Performing resource check");
     try {
       const checks = await Promise.all([
         this.checkConcurrentExecutions(),
@@ -2219,13 +2219,13 @@ class ResourceMonitor {
       ]);
       checks.forEach((check) => {
         if (!check.allowed && check.message) {
-          logger$g.warn(`Resource limit warning: ${check.message}`);
+          logger$h.warn(`Resource limit warning: ${check.message}`);
         }
       });
       await this.checkLongRunningExecutions();
       await this.cleanupOldWorkspaces();
     } catch (error) {
-      logger$g.error("Resource check failed:", error);
+      logger$h.error("Resource check failed:", error);
     }
   }
   /**
@@ -2239,9 +2239,9 @@ class ResourceMonitor {
         [cutoffTime.toISOString()]
       );
       if (longRunning.length > 0) {
-        logger$g.warn(`Found ${longRunning.length} long-running executions`);
+        logger$h.warn(`Found ${longRunning.length} long-running executions`);
         for (const execution of longRunning) {
-          logger$g.warn(`Execution ${execution.id} has been running since ${execution.created_at}`);
+          logger$h.warn(`Execution ${execution.id} has been running since ${execution.created_at}`);
           await this.db.run(
             "UPDATE executions SET needs_review = 1, review_reason = ? WHERE id = ?",
             [`Long-running execution (>${this.limits.maxExecutionTimeMinutes} minutes)`, execution.id]
@@ -2249,7 +2249,7 @@ class ResourceMonitor {
         }
       }
     } catch (error) {
-      logger$g.error("Failed to check long-running executions:", error);
+      logger$h.error("Failed to check long-running executions:", error);
     }
   }
   /**
@@ -2275,7 +2275,7 @@ class ResourceMonitor {
               [executionId]
             );
             if (!execution || ["completed", "failed", "rolled_back"].includes(execution.status)) {
-              logger$g.info(`Cleaning up old workspace: ${entry.name}`);
+              logger$h.info(`Cleaning up old workspace: ${entry.name}`);
               await promises.rm(executionPath, { recursive: true, force: true });
               cleanedCount++;
             }
@@ -2283,10 +2283,10 @@ class ResourceMonitor {
         }
       }
       if (cleanedCount > 0) {
-        logger$g.info(`Cleaned up ${cleanedCount} old workspace directories`);
+        logger$h.info(`Cleaned up ${cleanedCount} old workspace directories`);
       }
     } catch (error) {
-      logger$g.error("Failed to cleanup old workspaces:", error);
+      logger$h.error("Failed to cleanup old workspaces:", error);
     }
   }
   /**
@@ -2306,7 +2306,7 @@ class ResourceMonitor {
         }
       }
     } catch (error) {
-      logger$g.debug(`Error calculating directory size for ${dirPath}:`, error.message);
+      logger$h.debug(`Error calculating directory size for ${dirPath}:`, error.message);
     }
     return totalSize;
   }
@@ -2341,7 +2341,7 @@ class ResourceMonitor {
     };
   }
 }
-const logger$f = createLogger("AuditLogger");
+const logger$g = createLogger("AuditLogger");
 class AuditLogger {
   constructor(db) {
     this.db = db;
@@ -2384,7 +2384,7 @@ class AuditLogger {
         error,
         JSON.stringify(metadata)
       ]);
-      logger$f.info(`Git operation logged: ${operation} on ${refId}`, {
+      logger$g.info(`Git operation logged: ${operation} on ${refId}`, {
         executionId,
         refId,
         operation,
@@ -2392,7 +2392,7 @@ class AuditLogger {
         duration: `${duration}ms`
       });
     } catch (dbError) {
-      logger$f.error("Failed to log Git operation:", dbError);
+      logger$g.error("Failed to log Git operation:", dbError);
     }
   }
   /**
@@ -2425,14 +2425,14 @@ class AuditLogger {
         duration,
         error
       ]);
-      logger$f.info(`Execution event logged: ${event}`, {
+      logger$g.info(`Execution event logged: ${event}`, {
         executionId,
         event,
         phase,
         success
       });
     } catch (dbError) {
-      logger$f.error("Failed to log execution event:", dbError);
+      logger$g.error("Failed to log execution event:", dbError);
     }
   }
   /**
@@ -2463,21 +2463,21 @@ class AuditLogger {
         JSON.stringify(details)
       ]);
       if (exceeded) {
-        logger$f.warn(`Resource limit exceeded: ${type}`, {
+        logger$g.warn(`Resource limit exceeded: ${type}`, {
           type,
           current: currentValue,
           limit: limitValue,
           executionId
         });
       } else {
-        logger$f.debug(`Resource usage logged: ${type}`, {
+        logger$g.debug(`Resource usage logged: ${type}`, {
           type,
           current: currentValue,
           limit: limitValue
         });
       }
     } catch (dbError) {
-      logger$f.error("Failed to log resource usage:", dbError);
+      logger$g.error("Failed to log resource usage:", dbError);
     }
   }
   /**
@@ -2506,20 +2506,20 @@ class AuditLogger {
         JSON.stringify(metadata)
       ]);
       if (duration > 5e3) {
-        logger$f.warn(`Slow operation detected: ${operation}`, {
+        logger$g.warn(`Slow operation detected: ${operation}`, {
           executionId,
           operation,
           duration: `${duration}ms`,
           success
         });
       } else {
-        logger$f.debug(`Performance metric logged: ${operation}`, {
+        logger$g.debug(`Performance metric logged: ${operation}`, {
           duration: `${duration}ms`,
           success
         });
       }
     } catch (dbError) {
-      logger$f.error("Failed to log performance metric:", dbError);
+      logger$g.error("Failed to log performance metric:", dbError);
     }
   }
   /**
@@ -2557,7 +2557,7 @@ class AuditLogger {
         performanceMetrics: performance.map(this.parseLogRecord)
       };
     } catch (error) {
-      logger$f.error(`Failed to get audit trail for execution ${executionId}:`, error);
+      logger$g.error(`Failed to get audit trail for execution ${executionId}:`, error);
       throw error;
     }
   }
@@ -2620,7 +2620,7 @@ class AuditLogger {
         generatedAt: (/* @__PURE__ */ new Date()).toISOString()
       };
     } catch (error) {
-      logger$f.error("Failed to get system metrics:", error);
+      logger$g.error("Failed to get system metrics:", error);
       throw error;
     }
   }
@@ -2634,7 +2634,7 @@ class AuditLogger {
         try {
           parsed[field] = JSON.parse(parsed[field]);
         } catch (e) {
-          logger$f.warn(`Failed to parse ${field} in log record:`, e);
+          logger$g.warn(`Failed to parse ${field} in log record:`, e);
         }
       }
     });
@@ -2653,15 +2653,15 @@ class AuditLogger {
         this.db.run(`DELETE FROM performance_metrics WHERE timestamp < ${cutoffDate}`)
       ]);
       const totalDeleted = results.reduce((sum, result) => sum + (result.changes || 0), 0);
-      logger$f.info(`Cleaned up ${totalDeleted} old audit log records older than ${retentionDays} days`);
+      logger$g.info(`Cleaned up ${totalDeleted} old audit log records older than ${retentionDays} days`);
       return { deletedRecords: totalDeleted, retentionDays };
     } catch (error) {
-      logger$f.error("Failed to cleanup old audit logs:", error);
+      logger$g.error("Failed to cleanup old audit logs:", error);
       throw error;
     }
   }
 }
-const logger$e = createLogger("PerformanceMonitor");
+const logger$f = createLogger("PerformanceMonitor");
 class PerformanceMonitor {
   constructor(auditLogger = null) {
     this.auditLogger = auditLogger;
@@ -2682,7 +2682,7 @@ class PerformanceMonitor {
       startTime,
       metadata
     });
-    logger$e.debug(`Started timing operation: ${operation}`, {
+    logger$f.debug(`Started timing operation: ${operation}`, {
       operationId,
       operation,
       metadata
@@ -2695,7 +2695,7 @@ class PerformanceMonitor {
   async endTiming(operationId, success = true, error = null, additionalMetadata = {}) {
     const operationData = this.activeOperations.get(operationId);
     if (!operationData) {
-      logger$e.warn(`Operation ${operationId} not found in active operations`);
+      logger$f.warn(`Operation ${operationId} not found in active operations`);
       return null;
     }
     const endTime = Date.now();
@@ -2716,7 +2716,7 @@ class PerformanceMonitor {
       });
     }
     this.activeOperations.delete(operationId);
-    logger$e.debug(`Completed timing operation: ${operationData.operation}`, {
+    logger$f.debug(`Completed timing operation: ${operationData.operation}`, {
       operationId,
       operation: operationData.operation,
       duration: `${duration}ms`,
@@ -2859,7 +2859,7 @@ class PerformanceMonitor {
       averageDurations: /* @__PURE__ */ new Map(),
       errorCounts: /* @__PURE__ */ new Map()
     };
-    logger$e.info("Performance metrics reset");
+    logger$f.info("Performance metrics reset");
   }
   /**
    * Generate unique operation ID
@@ -2902,13 +2902,13 @@ class PerformanceMonitor {
       }
     }
     if (stuckOps.length > 0) {
-      logger$e.warn(`Found ${stuckOps.length} potentially stuck operations`, { stuckOps });
+      logger$f.warn(`Found ${stuckOps.length} potentially stuck operations`, { stuckOps });
     }
     return stuckOps;
   }
 }
 let query;
-const logger$d = createLogger("ClaudeSDKManager");
+const logger$e = createLogger("ClaudeSDKManager");
 class ClaudeSDKManager {
   constructor(db, config2, eventEmitter, workspaceManager) {
     this.db = db;
@@ -2925,9 +2925,9 @@ class ClaudeSDKManager {
       const claudeSDK = await import("@anthropic-ai/claude-code");
       query = claudeSDK.query;
       this.sdkLoaded = true;
-      logger$d.info("Claude SDK loaded successfully");
+      logger$e.info("Claude SDK loaded successfully");
     } catch (error) {
-      logger$d.error("Failed to load Claude SDK", { error });
+      logger$e.error("Failed to load Claude SDK", { error });
       throw new Error("Claude SDK not available");
     }
   }
@@ -2952,7 +2952,7 @@ class ClaudeSDKManager {
       type: LogType.SYSTEM,
       content: JSON.stringify(phaseMessage)
     });
-    logger$d.info("Emitted phase update", { executionId, phase, message });
+    logger$e.info("Emitted phase update", { executionId, phase, message });
   }
   async updateHeartbeat(executionId) {
     await this.db.run(
@@ -2966,9 +2966,9 @@ class ClaudeSDKManager {
     }
     if (this.activeSessions.has(executionId)) {
       if (options.isResume) {
-        logger$d.info("Cleaning up existing session for resume", { executionId });
+        logger$e.info("Cleaning up existing session for resume", { executionId });
       } else {
-        logger$d.warn("Execution already has an active session, stopping existing and starting new", { executionId });
+        logger$e.warn("Execution already has an active session, stopping existing and starting new", { executionId });
       }
       await this.stopExecution(executionId);
     }
@@ -2977,14 +2977,14 @@ class ClaudeSDKManager {
       const executionCwd = path.join(workspacePath, ".execution", `exec-${executionId}`);
       fs.mkdirSync(executionCwd, { recursive: true });
       if (options.isResume) {
-        logger$d.info("Resuming Claude SDK execution", {
+        logger$e.info("Resuming Claude SDK execution", {
           executionId,
           executionCwd,
           sessionId: options.sessionId,
           action: "session_resume"
         });
       } else {
-        logger$d.info("Starting Claude SDK execution", {
+        logger$e.info("Starting Claude SDK execution", {
           executionId,
           executionCwd,
           providedWorkingDir: workingDir,
@@ -3004,14 +3004,14 @@ class ClaudeSDKManager {
           ...options
         }
       };
-      logger$d.info("Claude SDK query options", {
+      logger$e.info("Claude SDK query options", {
         executionId,
         cwd: executionCwd,
         queryOptions
       });
       if (options.sessionId) {
         queryOptions.options.resume = options.sessionId;
-        logger$d.info("Resuming existing session", { executionId, sessionId: options.sessionId });
+        logger$e.info("Resuming existing session", { executionId, sessionId: options.sessionId });
       }
       this.activeSessions.set(executionId, {
         sessionId: null,
@@ -3021,12 +3021,12 @@ class ClaudeSDKManager {
       });
       await this.updateExecutionStatus(executionId, ExecutionStatus.RUNNING);
       this.processExecution(executionId, queryOptions).catch((error) => {
-        logger$d.error("Execution processing error", { executionId, error });
+        logger$e.error("Execution processing error", { executionId, error });
         this.handleExecutionError(executionId, error);
       });
       return true;
     } catch (error) {
-      logger$d.error("Failed to start execution", { executionId, error });
+      logger$e.error("Failed to start execution", { executionId, error });
       await this.updateExecutionStatus(executionId, ExecutionStatus.FAILED);
       throw error;
     }
@@ -3058,7 +3058,7 @@ class ClaudeSDKManager {
       }
     } catch (error) {
       if (error.name === "AbortError") {
-        logger$d.info("Execution aborted", { executionId });
+        logger$e.info("Execution aborted", { executionId });
         await this.updateExecutionStatus(executionId, ExecutionStatus.CANCELLED);
       } else {
         throw error;
@@ -3067,7 +3067,7 @@ class ClaudeSDKManager {
   }
   async handleMessage(executionId, message) {
     const timestamp = (/* @__PURE__ */ new Date()).toISOString();
-    logger$d.debug("Received message", {
+    logger$e.debug("Received message", {
       executionId,
       type: message.type,
       subtype: message.subtype,
@@ -3075,7 +3075,7 @@ class ClaudeSDKManager {
     });
     const messageStr = JSON.stringify(message).toLowerCase();
     if (messageStr.includes("prompt is too long")) {
-      logger$d.warn('DEBUG: Found "Prompt is too long" in message', {
+      logger$e.warn('DEBUG: Found "Prompt is too long" in message', {
         executionId,
         messageType: message.type,
         messageSubtype: message.subtype,
@@ -3130,7 +3130,7 @@ class ClaudeSDKManager {
     if (!session) {
       return false;
     }
-    logger$d.info("Stopping execution", { executionId });
+    logger$e.info("Stopping execution", { executionId });
     if (session.abortController) {
       session.abortController.abort();
     }
@@ -3165,12 +3165,12 @@ class ClaudeSDKManager {
   async waitForCompactCompletion(executionId) {
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
-        logger$d.error("Compact operation timed out", { executionId });
+        logger$e.error("Compact operation timed out", { executionId });
         reject(new Error("Compact operation timed out"));
       }, 12e4);
-      logger$d.info("Setting up compact completion listener", { executionId });
+      logger$e.info("Setting up compact completion listener", { executionId });
       const completionHandler = ({ executionId: completedId, code, result }) => {
-        logger$d.info("Received PROCESS_EXIT event", {
+        logger$e.info("Received PROCESS_EXIT event", {
           completedId,
           targetExecutionId: executionId,
           code,
@@ -3180,17 +3180,17 @@ class ClaudeSDKManager {
           clearTimeout(timeout);
           this.eventEmitter.off(Events.PROCESS_EXIT, completionHandler);
           if (code === 0 || result && !result.is_error) {
-            logger$d.info("Compact operation completed successfully", { executionId });
+            logger$e.info("Compact operation completed successfully", { executionId });
             resolve();
           } else {
-            logger$d.error("Compact operation failed", { executionId, code, result });
+            logger$e.error("Compact operation failed", { executionId, code, result });
             reject(new Error("Compact operation failed"));
           }
         }
       };
       const checkCompletion = setInterval(() => {
         if (!this.activeSessions.has(executionId)) {
-          logger$d.info("Compact session no longer active, assuming completion", { executionId });
+          logger$e.info("Compact session no longer active, assuming completion", { executionId });
           clearTimeout(timeout);
           clearInterval(checkCompletion);
           this.eventEmitter.off(Events.PROCESS_EXIT, completionHandler);
@@ -3234,15 +3234,15 @@ class ClaudeSDKManager {
         type: LogType.SYSTEM,
         content: JSON.stringify(compactStartMessage)
       });
-      logger$d.info("Starting conversation compact", { executionId, action: "compact_start" });
-      logger$d.info("Sending /compact command", { executionId, sessionId });
+      logger$e.info("Starting conversation compact", { executionId, action: "compact_start" });
+      logger$e.info("Sending /compact command", { executionId, sessionId });
       await this.startExecution(executionId, "/compact", null, {
         sessionId,
         isCompact: true
       });
-      logger$d.info("Compact command sent, waiting for completion...", { executionId });
+      logger$e.info("Compact command sent, waiting for completion...", { executionId });
       await this.waitForCompactCompletion(executionId);
-      logger$d.info("Compact wait completed", { executionId });
+      logger$e.info("Compact wait completed", { executionId });
       const compactCompleteMessage = {
         type: "assistant",
         message: {
@@ -3271,10 +3271,10 @@ class ClaudeSDKManager {
         type: LogType.SYSTEM,
         content: JSON.stringify(compactCompleteMessage)
       });
-      logger$d.info("Compact completed, sending original message", { executionId, action: "compact_complete" });
+      logger$e.info("Compact completed, sending original message", { executionId, action: "compact_complete" });
       await this.startExecution(executionId, originalMessage, null, { sessionId });
     } catch (error) {
-      logger$d.error("Compact and retry failed", { executionId, error });
+      logger$e.error("Compact and retry failed", { executionId, error });
       const errorMessage = {
         type: "assistant",
         message: {
@@ -3319,13 +3319,13 @@ class ClaudeSDKManager {
     );
   }
   async handleExecutionComplete(executionId, result) {
-    logger$d.info("Execution completed", {
+    logger$e.info("Execution completed", {
       executionId,
       turns: result.num_turns,
       duration: result.duration_ms,
       cost: result.total_cost_usd
     });
-    logger$d.info("DEBUG: Complete result object structure", {
+    logger$e.info("DEBUG: Complete result object structure", {
       executionId,
       resultKeys: Object.keys(result),
       resultType: typeof result,
@@ -3337,7 +3337,7 @@ class ClaudeSDKManager {
       fullResult: JSON.stringify(result, null, 2)
     });
     const isPromptTooLong = result.is_error && result.result && result.result.toLowerCase().includes("prompt is too long");
-    logger$d.info("DEBUG: Prompt too long check", {
+    logger$e.info("DEBUG: Prompt too long check", {
       executionId,
       isPromptTooLong,
       isError: result.is_error,
@@ -3345,7 +3345,7 @@ class ClaudeSDKManager {
       resultLowerCase: result.result ? result.result.toLowerCase() : "null"
     });
     if (isPromptTooLong) {
-      logger$d.warn("Detected prompt too long error, attempting compact and retry", { executionId });
+      logger$e.warn("Detected prompt too long error, attempting compact and retry", { executionId });
       const originalMessage = this.pendingMessages.get(executionId);
       if (originalMessage) {
         try {
@@ -3360,7 +3360,7 @@ class ClaudeSDKManager {
             return;
           }
         } catch (error) {
-          logger$d.error("Failed to compact and retry", { executionId, error });
+          logger$e.error("Failed to compact and retry", { executionId, error });
         }
       }
     }
@@ -3383,7 +3383,7 @@ class ClaudeSDKManager {
     this.activeSessions.delete(executionId);
   }
   async handleExecutionError(executionId, error) {
-    logger$d.error("Execution error", { executionId, error });
+    logger$e.error("Execution error", { executionId, error });
     await this.updateExecutionStatus(executionId, ExecutionStatus.FAILED);
     await this.db.run(
       "INSERT INTO logs (execution_id, type, content) VALUES (?, ?, ?)",
@@ -3397,7 +3397,7 @@ class ClaudeSDKManager {
    * Resume a Claude SDK session after server restart
    */
   async resumeSession(executionId, sessionId) {
-    logger$d.info("Resuming Claude SDK session", { executionId, sessionId });
+    logger$e.info("Resuming Claude SDK session", { executionId, sessionId });
     try {
       const execution = await this.db.get(
         "SELECT * FROM executions WHERE id = ?",
@@ -3416,16 +3416,16 @@ class ClaudeSDKManager {
         isResume: true
         // Flag this as a session resumption
       });
-      logger$d.info("Successfully resumed session", { executionId, sessionId });
+      logger$e.info("Successfully resumed session", { executionId, sessionId });
       return true;
     } catch (error) {
-      logger$d.error("Failed to resume session", { executionId, sessionId, error });
+      logger$e.error("Failed to resume session", { executionId, sessionId, error });
       await this.updateExecutionStatus(executionId, ExecutionStatus.FAILED);
       throw error;
     }
   }
 }
-const logger$c = createLogger("portAllocator");
+const logger$d = createLogger("portAllocator");
 class PortAllocator {
   constructor(db) {
     this.db = db;
@@ -3435,44 +3435,44 @@ class PortAllocator {
   async allocatePort(preferredPort = null) {
     try {
       if (preferredPort) {
-        logger$c.info(`Checking if preferred port ${preferredPort} is available`);
+        logger$d.info(`Checking if preferred port ${preferredPort} is available`);
         const isAvailable = await this.isPortAvailable(preferredPort);
-        logger$c.info(`Port ${preferredPort} available: ${isAvailable}`);
+        logger$d.info(`Port ${preferredPort} available: ${isAvailable}`);
         if (isAvailable) {
           await this.markPortAllocated(preferredPort);
           return preferredPort;
         }
       }
-      logger$c.info(`Searching for available port starting from ${this.basePort}`);
+      logger$d.info(`Searching for available port starting from ${this.basePort}`);
       for (let port = this.basePort; port <= this.maxPort; port++) {
         const isAvailable = await this.isPortAvailable(port);
         if (isAvailable) {
-          logger$c.info(`Found available port: ${port}`);
+          logger$d.info(`Found available port: ${port}`);
           await this.markPortAllocated(port);
           return port;
         }
       }
       throw new Error("No available ports in the configured range");
     } catch (error) {
-      logger$c.error("Error allocating port:", error);
+      logger$d.error("Error allocating port:", error);
       throw error;
     }
   }
   async releasePort(port) {
     try {
       await this.db.run("DELETE FROM port_allocations WHERE port = ?", [port]);
-      logger$c.info(`Released port ${port}`);
+      logger$d.info(`Released port ${port}`);
     } catch (error) {
-      logger$c.error(`Error releasing port ${port}:`, error);
+      logger$d.error(`Error releasing port ${port}:`, error);
       throw error;
     }
   }
   async releasePortsByPreviewId(previewId) {
     try {
       await this.db.run("DELETE FROM port_allocations WHERE preview_id = ?", [previewId]);
-      logger$c.info(`Released all ports for preview ${previewId}`);
+      logger$d.info(`Released all ports for preview ${previewId}`);
     } catch (error) {
-      logger$c.error(`Error releasing ports for preview ${previewId}:`, error);
+      logger$d.error(`Error releasing ports for preview ${previewId}:`, error);
       throw error;
     }
   }
@@ -3485,7 +3485,7 @@ class PortAllocator {
     for (const host of interfacesToTest) {
       const available = await this.checkPortOnInterface(port, host);
       if (!available) {
-        logger$c.info(`Port ${port} is not available on ${host}`);
+        logger$d.info(`Port ${port} is not available on ${host}`);
         return false;
       }
     }
@@ -3549,15 +3549,15 @@ class PortAllocator {
       for (const allocation of staleAllocations) {
         await this.releasePort(allocation.port);
       }
-      logger$c.info(`Cleaned up ${staleAllocations.length} stale port allocations`);
+      logger$d.info(`Cleaned up ${staleAllocations.length} stale port allocations`);
       return staleAllocations.length;
     } catch (error) {
-      logger$c.error("Error cleaning up stale allocations:", error);
+      logger$d.error("Error cleaning up stale allocations:", error);
       throw error;
     }
   }
 }
-const logger$b = createLogger("projectAnalyzer");
+const logger$c = createLogger("projectAnalyzer");
 class ProjectAnalyzer {
   constructor() {
     this.frameworkDetection = {
@@ -3664,7 +3664,7 @@ class ProjectAnalyzer {
       }
       return analysis;
     } catch (error) {
-      logger$b.error("Error detecting project type:", error);
+      logger$c.error("Error detecting project type:", error);
       return {
         projectType: "unknown",
         framework: null,
@@ -3680,7 +3680,7 @@ class ProjectAnalyzer {
       const content = await promises.readFile(packageJsonPath, "utf8");
       return JSON.parse(content);
     } catch (error) {
-      logger$b.error("Error reading package.json:", error);
+      logger$c.error("Error reading package.json:", error);
       return null;
     }
   }
@@ -3711,7 +3711,7 @@ class ProjectAnalyzer {
         return "fastapi";
       }
     } catch (error) {
-      logger$b.debug("Could not detect Python framework:", error.message);
+      logger$c.debug("Could not detect Python framework:", error.message);
     }
     return null;
   }
@@ -3787,7 +3787,7 @@ class ProjectAnalyzer {
         }
       }
     } catch (error) {
-      logger$b.debug("Error detecting port:", error.message);
+      logger$c.debug("Error detecting port:", error.message);
     }
     return detectedPort || this.defaultPorts[framework] || 3e3;
   }
@@ -3824,7 +3824,7 @@ class ProjectAnalyzer {
     return null;
   }
 }
-const logger$a = createLogger("healthChecker");
+const logger$b = createLogger("healthChecker");
 class HealthChecker {
   constructor() {
     this.defaultTimeout = 5e3;
@@ -3861,7 +3861,7 @@ class HealthChecker {
         });
       });
       req.on("error", (error) => {
-        logger$a.debug(`Health check failed for ${url}:`, error.message);
+        logger$b.debug(`Health check failed for ${url}:`, error.message);
         resolve({
           responsive: false,
           error: error.message,
@@ -3885,7 +3885,7 @@ class HealthChecker {
     const maxDelay = options.maxDelay || this.maxDelay;
     const timeout = options.timeout || this.defaultTimeout;
     const acceptedStatusCodes = options.acceptedStatusCodes || [200, 201, 202, 204, 301, 302, 303, 304, 307, 308];
-    logger$a.info(`Waiting for server at ${url} to become responsive...`);
+    logger$b.info(`Waiting for server at ${url} to become responsive...`);
     let attempt = 0;
     let delay = initialDelay;
     while (attempt < maxAttempts) {
@@ -3893,23 +3893,23 @@ class HealthChecker {
       const health = await this.checkHealth(url, timeout);
       if (health.responsive) {
         if (acceptedStatusCodes.includes(health.statusCode)) {
-          logger$a.info(`Server at ${url} is responsive (attempt ${attempt}/${maxAttempts})`);
+          logger$b.info(`Server at ${url} is responsive (attempt ${attempt}/${maxAttempts})`);
           return {
             success: true,
             attempts: attempt,
             health
           };
         } else {
-          logger$a.debug(`Server responded with unexpected status ${health.statusCode}`);
+          logger$b.debug(`Server responded with unexpected status ${health.statusCode}`);
         }
       }
       if (attempt < maxAttempts) {
-        logger$a.debug(`Server not ready, waiting ${delay}ms before retry (attempt ${attempt}/${maxAttempts})`);
+        logger$b.debug(`Server not ready, waiting ${delay}ms before retry (attempt ${attempt}/${maxAttempts})`);
         await this.sleep(delay);
         delay = Math.min(delay * 1.5, maxDelay);
       }
     }
-    logger$a.error(`Server at ${url} failed to become responsive after ${maxAttempts} attempts`);
+    logger$b.error(`Server at ${url} failed to become responsive after ${maxAttempts} attempts`);
     return {
       success: false,
       attempts: attempt,
@@ -3992,7 +3992,7 @@ class HealthChecker {
     };
   }
 }
-const logger$9 = createLogger("previewManager");
+const logger$a = createLogger("previewManager");
 class PreviewManager {
   constructor(db, processManager, eventEmitter) {
     this.db = db;
@@ -4052,7 +4052,7 @@ class PreviewManager {
       if (options.refType && options.refId) {
         const baseWorkspace = execution.workspace_path || execution.working_dir;
         workingDir = path.join(baseWorkspace, options.refType, options.refId);
-        logger$9.info(`Using reference-specific directory: ${workingDir}`);
+        logger$a.info(`Using reference-specific directory: ${workingDir}`);
       }
       const projectInfo = await this.projectAnalyzer.detectProjectType(workingDir);
       const scripts = await this.projectAnalyzer.getAvailableScripts(workingDir, projectInfo.projectType);
@@ -4083,7 +4083,7 @@ class PreviewManager {
         port
       };
     } catch (error) {
-      logger$9.error(`Error analyzing project for execution ${executionId}:`, error);
+      logger$a.error(`Error analyzing project for execution ${executionId}:`, error);
       throw error;
     }
   }
@@ -4102,7 +4102,7 @@ class PreviewManager {
           [executionId, options.refType, options.refId]
         );
         if (existingPreview) {
-          logger$9.info(`Found existing preview for ${options.refType}/${options.refId}:`, {
+          logger$a.info(`Found existing preview for ${options.refType}/${options.refId}:`, {
             id: existingPreview.id,
             status: existingPreview.status,
             pid: existingPreview.pid,
@@ -4111,27 +4111,27 @@ class PreviewManager {
             error_message: existingPreview.error_message
           });
           if (["installing", "starting", "running"].includes(existingPreview.status)) {
-            logger$9.info(`Preview is marked as ${existingPreview.status}, verifying actual state...`);
+            logger$a.info(`Preview is marked as ${existingPreview.status}, verifying actual state...`);
             let isActuallyRunning = false;
             if (existingPreview.pid) {
               try {
                 process.kill(existingPreview.pid, 0);
                 isActuallyRunning = true;
-                logger$9.info(`Process ${existingPreview.pid} is still running`);
+                logger$a.info(`Process ${existingPreview.pid} is still running`);
               } catch (error) {
-                logger$9.info(`Process ${existingPreview.pid} is not running: ${error.message}`);
+                logger$a.info(`Process ${existingPreview.pid} is not running: ${error.message}`);
               }
             }
             if (!isActuallyRunning && existingPreview.port) {
               const portInUse = !await this.portAllocator.isPortAvailable(existingPreview.port);
               if (portInUse) {
-                logger$9.info(`Port ${existingPreview.port} is still in use, but not by our process`);
+                logger$a.info(`Port ${existingPreview.port} is still in use, but not by our process`);
               } else {
-                logger$9.info(`Port ${existingPreview.port} is available`);
+                logger$a.info(`Port ${existingPreview.port} is available`);
               }
             }
             if (isActuallyRunning) {
-              logger$9.info(`Preview is actually running, returning existing preview`);
+              logger$a.info(`Preview is actually running, returning existing preview`);
               const urls = existingPreview.urls ? JSON.parse(existingPreview.urls) : {};
               return {
                 success: true,
@@ -4149,7 +4149,7 @@ class PreviewManager {
                 existing: true
               };
             } else {
-              logger$9.info(`Preview process is not running, updating status to stopped`);
+              logger$a.info(`Preview process is not running, updating status to stopped`);
               await this.db.run(
                 "UPDATE preview_processes SET status = ?, stopped_at = CURRENT_TIMESTAMP WHERE id = ?",
                 ["stopped", existingPreview.id]
@@ -4158,16 +4158,16 @@ class PreviewManager {
             }
           }
           if (["stopped", "failed"].includes(existingPreview.status)) {
-            logger$9.info(`Preview is in ${existingPreview.status} state, stopping and restarting...`);
+            logger$a.info(`Preview is in ${existingPreview.status} state, stopping and restarting...`);
             try {
               await this.stopPreview(executionId, existingPreview.id);
               await new Promise((resolve) => setTimeout(resolve, 1e3));
             } catch (error) {
-              logger$9.warn(`Error stopping preview ${existingPreview.id}:`, error);
+              logger$a.warn(`Error stopping preview ${existingPreview.id}:`, error);
             }
-            logger$9.info(`Creating new preview for ${options.refType}/${options.refId} after stopping the old one`);
+            logger$a.info(`Creating new preview for ${options.refType}/${options.refId} after stopping the old one`);
           } else {
-            logger$9.warn(`Preview has unexpected status: ${existingPreview.status}`);
+            logger$a.warn(`Preview has unexpected status: ${existingPreview.status}`);
             return {
               success: false,
               error: `Preview has unexpected status: ${existingPreview.status}`,
@@ -4180,7 +4180,7 @@ class PreviewManager {
       if (options.refType && options.refId) {
         const baseWorkspace = execution.workspace_path || execution.working_dir;
         workingDir = path.join(baseWorkspace, options.refType, options.refId);
-        logger$9.info(`Starting new preview in reference directory: ${workingDir}`, {
+        logger$a.info(`Starting new preview in reference directory: ${workingDir}`, {
           refType: options.refType,
           refId: options.refId,
           baseWorkspace,
@@ -4208,12 +4208,12 @@ class PreviewManager {
         ]
       );
       this.setupPreviewAsync(previewId, executionId, workingDir, options).catch((error) => {
-        logger$9.error(`Async preview setup failed for ${previewId}:`, error);
+        logger$a.error(`Async preview setup failed for ${previewId}:`, error);
         this.db.run(
           "UPDATE preview_processes SET status = ?, error_message = ? WHERE id = ?",
           ["failed", error.message, previewId]
         ).catch((dbError) => {
-          logger$9.error(`Failed to update preview status to failed:`, dbError);
+          logger$a.error(`Failed to update preview status to failed:`, dbError);
         });
       });
       return {
@@ -4231,16 +4231,16 @@ class PreviewManager {
         startedAt: (/* @__PURE__ */ new Date()).toISOString()
       };
     } catch (error) {
-      logger$9.error("Error starting preview:", error);
+      logger$a.error("Error starting preview:", error);
       throw error;
     }
   }
   async setupPreviewAsync(previewId, executionId, workingDir, options) {
     try {
-      logger$9.info(`Setting up preview ${previewId} in ${workingDir}`);
+      logger$a.info(`Setting up preview ${previewId} in ${workingDir}`);
       const analysis = await this.analyzeProject(executionId, { refType: options.refType, refId: options.refId });
       if (options.installDependencies !== false) {
-        logger$9.info(`Installing dependencies in ${workingDir}`);
+        logger$a.info(`Installing dependencies in ${workingDir}`);
         if (this.eventEmitter) {
           this.eventEmitter.emit("execution:log", {
             executionId,
@@ -4263,7 +4263,7 @@ class PreviewManager {
             refType: options.refType,
             refId: options.refId
           });
-          logger$9.info(`Dependencies installed successfully`, installResult);
+          logger$a.info(`Dependencies installed successfully`, installResult);
           if (this.eventEmitter) {
             this.eventEmitter.emit("execution:log", {
               executionId,
@@ -4280,7 +4280,7 @@ class PreviewManager {
             });
           }
         } catch (installError) {
-          logger$9.error(`Failed to install dependencies: ${installError.message}`);
+          logger$a.error(`Failed to install dependencies: ${installError.message}`);
           throw new Error(`Dependency installation failed: ${installError.message}`);
         }
       }
@@ -4290,13 +4290,13 @@ class PreviewManager {
       }
       if (analysis.projectType === "node" && !command.startsWith("npx") && !command.startsWith("npm") && !command.startsWith("yarn")) {
         command = `npx ${command}`;
-        logger$9.info(`Modified command to use npx: ${command}`);
+        logger$a.info(`Modified command to use npx: ${command}`);
       }
       await this.db.run(
         "UPDATE preview_processes SET status = ?, command = ? WHERE id = ?",
         ["starting", command, previewId]
       );
-      logger$9.info(`Starting app with command: ${command} in directory: ${workingDir}`);
+      logger$a.info(`Starting app with command: ${command} in directory: ${workingDir}`);
       const env = {
         ...process.env,
         NODE_ENV: "development",
@@ -4314,7 +4314,7 @@ class PreviewManager {
         throw new Error("Failed to start process");
       }
       this.previewProcesses.set(previewId, childProcess);
-      logger$9.info(`Started process with PID: ${childProcess.pid}`);
+      logger$a.info(`Started process with PID: ${childProcess.pid}`);
       await this.db.run(
         "UPDATE preview_processes SET pid = ? WHERE id = ?",
         [childProcess.pid, previewId]
@@ -4327,7 +4327,7 @@ class PreviewManager {
         if (!assignedPort) {
           assignedPort = this.parsePortFromOutput(output, analysis.framework);
           if (assignedPort) {
-            logger$9.info(`Detected port ${assignedPort} for preview ${previewId}`);
+            logger$a.info(`Detected port ${assignedPort} for preview ${previewId}`);
             this.updatePreviewPort(previewId, assignedPort);
           }
         }
@@ -4339,21 +4339,21 @@ class PreviewManager {
         if (!assignedPort) {
           assignedPort = this.parsePortFromOutput(output, analysis.framework);
           if (assignedPort) {
-            logger$9.info(`Detected port ${assignedPort} for preview ${previewId} (from stderr)`);
+            logger$a.info(`Detected port ${assignedPort} for preview ${previewId} (from stderr)`);
             this.updatePreviewPort(previewId, assignedPort);
           }
         }
       });
       childProcess.on("error", (error) => {
-        logger$9.error(`Process error for preview ${previewId}:`, error);
+        logger$a.error(`Process error for preview ${previewId}:`, error);
         this.handleProcessError(previewId, error);
       });
       childProcess.on("exit", (code, signal) => {
-        logger$9.info(`Process exited for preview ${previewId} with code ${code}, signal ${signal}`);
+        logger$a.info(`Process exited for preview ${previewId} with code ${code}, signal ${signal}`);
         this.handleProcessExit(previewId, code, signal);
       });
     } catch (error) {
-      logger$9.error(`Setup failed for preview ${previewId}:`, error);
+      logger$a.error(`Setup failed for preview ${previewId}:`, error);
       await this.db.run(
         "UPDATE preview_processes SET status = ?, error_message = ? WHERE id = ?",
         ["failed", error.message, previewId]
@@ -4408,7 +4408,7 @@ class PreviewManager {
         stoppedAt: (/* @__PURE__ */ new Date()).toISOString()
       };
     } catch (error) {
-      logger$9.error(`Error stopping preview:`, error);
+      logger$a.error(`Error stopping preview:`, error);
       throw error;
     }
   }
@@ -4464,7 +4464,7 @@ class PreviewManager {
         previews: results
       };
     } catch (error) {
-      logger$9.error(`Error getting preview status for execution ${executionId}:`, error);
+      logger$a.error(`Error getting preview status for execution ${executionId}:`, error);
       throw error;
     }
   }
@@ -4481,7 +4481,7 @@ class PreviewManager {
       if (options.refType && options.refId) {
         const baseWorkspace = execution.workspace_path || execution.working_dir;
         workingDir = path.join(baseWorkspace, options.refType, options.refId);
-        logger$9.info(`Installing dependencies in reference directory: ${workingDir}`);
+        logger$a.info(`Installing dependencies in reference directory: ${workingDir}`);
       }
       const analysis = await this.analyzeProject(executionId, { refType: options.refType, refId: options.refId });
       let manager = options.manager;
@@ -4513,19 +4513,19 @@ class PreviewManager {
         let output = "";
         childProcess.stdout.on("data", (data) => {
           output += data.toString();
-          logger$9.info(`Install output: ${data.toString().trim()}`);
+          logger$a.info(`Install output: ${data.toString().trim()}`);
         });
         childProcess.stderr.on("data", (data) => {
           output += data.toString();
-          logger$9.info(`Install stderr: ${data.toString().trim()}`);
+          logger$a.info(`Install stderr: ${data.toString().trim()}`);
         });
         childProcess.on("error", (error) => {
-          logger$9.error(`Install process error:`, error);
+          logger$a.error(`Install process error:`, error);
           reject(error);
         });
         childProcess.on("exit", (code) => {
           const duration = Date.now() - startTime;
-          logger$9.info(`Install process exited with code ${code} after ${duration}ms`);
+          logger$a.info(`Install process exited with code ${code} after ${duration}ms`);
           if (code === 0) {
             resolve({
               success: true,
@@ -4543,7 +4543,7 @@ class PreviewManager {
         });
       });
     } catch (error) {
-      logger$9.error(`Error installing dependencies for execution ${executionId}:`, error);
+      logger$a.error(`Error installing dependencies for execution ${executionId}:`, error);
       throw error;
     }
   }
@@ -4555,7 +4555,7 @@ class PreviewManager {
       );
       this.broadcastLog(previewId, type, content);
     } catch (error) {
-      logger$9.error(`Error handling process output for preview ${previewId}:`, error);
+      logger$a.error(`Error handling process output for preview ${previewId}:`, error);
     }
   }
   async handleProcessError(previewId, error) {
@@ -4566,7 +4566,7 @@ class PreviewManager {
       );
       await this.handleProcessOutput(previewId, "system", `Process error: ${error.message}`);
     } catch (dbError) {
-      logger$9.error(`Error handling process error for preview ${previewId}:`, dbError);
+      logger$a.error(`Error handling process error for preview ${previewId}:`, dbError);
     }
   }
   async handleProcessExit(previewId, code, signal) {
@@ -4587,7 +4587,7 @@ class PreviewManager {
           [previewId]
         );
         if (preview && preview.execution_id) {
-          logger$9.warn(`Preview ${previewId} exited unexpectedly (code: ${code}, signal: ${signal})`);
+          logger$a.warn(`Preview ${previewId} exited unexpectedly (code: ${code}, signal: ${signal})`);
           const errorMessage = `⚠️ **Preview Process Exited**
 
 Preview for ${preview.ref_type}/${preview.ref_id} stopped unexpectedly.
@@ -4606,14 +4606,14 @@ Please check the logs above for more details. You can restart the preview using 
             await axios.post(`http://localhost:3010/message/${preview.execution_id}`, {
               message: errorMessage
             });
-            logger$9.info(`Sent exit notification to Claude for preview ${previewId}`);
+            logger$a.info(`Sent exit notification to Claude for preview ${previewId}`);
           } catch (error) {
-            logger$9.error(`Failed to send exit notification to Claude:`, error);
+            logger$a.error(`Failed to send exit notification to Claude:`, error);
           }
         }
       }
     } catch (error) {
-      logger$9.error(`Error handling process exit for preview ${previewId}:`, error);
+      logger$a.error(`Error handling process exit for preview ${previewId}:`, error);
     }
   }
   addSSEConnection(previewId, res) {
@@ -4701,7 +4701,7 @@ data: ${data}
       const match = output.match(pattern);
       if (match) {
         const port = parseInt(match[1], 10);
-        logger$9.info(`Detected port ${port} for ${framework} from output`);
+        logger$a.info(`Detected port ${port} for ${framework} from output`);
         return port;
       }
     }
@@ -4716,7 +4716,7 @@ data: ${data}
       if (matches.length > 0) {
         const port = parseInt(matches[0][1], 10);
         if (port >= 3e3 && port <= 9e3) {
-          logger$9.info(`Detected port ${port} from generic pattern`);
+          logger$a.info(`Detected port ${port} from generic pattern`);
           return port;
         }
       }
@@ -4735,11 +4735,11 @@ data: ${data}
         [port, JSON.stringify(urls), previewId]
       );
       await this.portAllocator.updatePortAllocation(port, previewId);
-      logger$9.info(`Updated preview ${previewId} with detected port ${port}`);
+      logger$a.info(`Updated preview ${previewId} with detected port ${port}`);
       this.broadcastStatus(previewId, "port_detected", port, urls.local);
       this.startHealthCheck(previewId, port);
     } catch (error) {
-      logger$9.error(`Error updating preview port for ${previewId}:`, error);
+      logger$a.error(`Error updating preview port for ${previewId}:`, error);
     }
   }
   async startHealthCheck(previewId, port) {
@@ -4764,7 +4764,7 @@ data: ${data}
           this.broadcastStatus(previewId, "failed", port, null);
         }
       } catch (error) {
-        logger$9.error(`Health check failed for preview ${previewId}:`, error);
+        logger$a.error(`Health check failed for preview ${previewId}:`, error);
       }
     }, 3e3);
   }
@@ -4772,7 +4772,7 @@ data: ${data}
    * Forcefully stop a preview process and clean up resources
    */
   async forceStopPreview(previewId) {
-    logger$9.info(`Force stopping preview ${previewId}`);
+    logger$a.info(`Force stopping preview ${previewId}`);
     try {
       const processInfo = this.previewProcesses.get(previewId);
       if (processInfo && processInfo.process) {
@@ -4781,7 +4781,7 @@ data: ${data}
           process2.kill("SIGTERM");
           await new Promise((resolve) => setTimeout(resolve, 2e3));
           if (!process2.killed) {
-            logger$9.warn(`Preview ${previewId} didn't respond to SIGTERM, using SIGKILL`);
+            logger$a.warn(`Preview ${previewId} didn't respond to SIGTERM, using SIGKILL`);
             process2.kill("SIGKILL");
           }
         }
@@ -4793,7 +4793,7 @@ data: ${data}
       }
       await this.portAllocator.releasePortsByPreviewId(previewId);
     } catch (error) {
-      logger$9.error(`Error during force stop of preview ${previewId}:`, error);
+      logger$a.error(`Error during force stop of preview ${previewId}:`, error);
     }
   }
   /**
@@ -4816,19 +4816,19 @@ data: ${data}
       for (const pid of pidList) {
         try {
           process.kill(parseInt(pid), "SIGKILL");
-          logger$9.info(`Killed process ${pid} using port ${port}`);
+          logger$a.info(`Killed process ${pid} using port ${port}`);
         } catch (e) {
         }
       }
     } catch (error) {
-      logger$9.warn(`Could not kill processes on port ${port}:`, error.message);
+      logger$a.warn(`Could not kill processes on port ${port}:`, error.message);
     }
   }
   /**
    * Restart a preview process after server restart
    */
   async restartPreview(previewData) {
-    logger$9.info(`Attempting to restart preview ${previewData.id}`);
+    logger$a.info(`Attempting to restart preview ${previewData.id}`);
     try {
       await this.forceStopPreview(previewData.id);
       const urls = previewData.urls ? JSON.parse(previewData.urls) : {};
@@ -4838,9 +4838,9 @@ data: ${data}
       }
       const isAvailable = await this.portAllocator.isPortAvailable(port);
       if (!isAvailable) {
-        logger$9.warn(`Port ${port} is no longer available for preview ${previewData.id}`);
+        logger$a.warn(`Port ${port} is no longer available for preview ${previewData.id}`);
         const newPort = await this.portAllocator.allocatePort();
-        logger$9.info(`Allocated new port ${newPort} for preview ${previewData.id}`);
+        logger$a.info(`Allocated new port ${newPort} for preview ${previewData.id}`);
         await this.portAllocator.updatePortAllocation(newPort, previewData.id);
         previewData.port = newPort;
       }
@@ -4874,11 +4874,11 @@ data: ${data}
         this.checkForErrors(previewData.id, content, previewData.execution_id);
       });
       childProcess.on("error", (error) => {
-        logger$9.error(`Preview process error for ${previewData.id}:`, error);
+        logger$a.error(`Preview process error for ${previewData.id}:`, error);
         this.handlePreviewError(previewData.id, error.message);
       });
       childProcess.on("exit", (code, signal) => {
-        logger$9.info(`Preview process exited for ${previewData.id}: code=${code}, signal=${signal}`);
+        logger$a.info(`Preview process exited for ${previewData.id}: code=${code}, signal=${signal}`);
         this.handlePreviewExit(previewData.id, code, signal);
       });
       const newUrls = {
@@ -4901,7 +4901,7 @@ data: ${data}
               "UPDATE preview_processes SET status = ? WHERE id = ?",
               ["running", previewData.id]
             );
-            logger$9.info(`Successfully restarted preview ${previewData.id}`);
+            logger$a.info(`Successfully restarted preview ${previewData.id}`);
           } else {
             await this.db.run(
               "UPDATE preview_processes SET status = ?, error_message = ? WHERE id = ?",
@@ -4909,7 +4909,7 @@ data: ${data}
             );
           }
         } catch (error) {
-          logger$9.error(`Health check failed for restarted preview ${previewData.id}:`, error);
+          logger$a.error(`Health check failed for restarted preview ${previewData.id}:`, error);
         }
       }, 3e3);
       return {
@@ -4919,7 +4919,7 @@ data: ${data}
         url: newUrls.local
       };
     } catch (error) {
-      logger$9.error(`Failed to restart preview ${previewData.id}:`, error);
+      logger$a.error(`Failed to restart preview ${previewData.id}:`, error);
       await this.db.run(
         "UPDATE preview_processes SET status = ?, error_message = ? WHERE id = ?",
         ["failed", error.message, previewData.id]
@@ -4935,10 +4935,10 @@ data: ${data}
       try {
         await this.checkAndRestartFailedPreviews();
       } catch (error) {
-        logger$9.error("Error during health monitoring:", error);
+        logger$a.error("Error during health monitoring:", error);
       }
     }, this.healthCheckInterval);
-    logger$9.info(`Started preview health monitoring (interval: ${this.healthCheckInterval}ms)`);
+    logger$a.info(`Started preview health monitoring (interval: ${this.healthCheckInterval}ms)`);
   }
   /**
    * Check all running previews and restart failed ones
@@ -4952,7 +4952,7 @@ data: ${data}
       try {
         await this.checkPreviewHealth(preview);
       } catch (error) {
-        logger$9.error(`Health check failed for preview ${preview.id}:`, error);
+        logger$a.error(`Health check failed for preview ${preview.id}:`, error);
       }
     }
   }
@@ -4963,19 +4963,19 @@ data: ${data}
     const urls = preview.urls ? JSON.parse(preview.urls) : {};
     const url = urls.local;
     if (!url) {
-      logger$9.warn(`Preview ${preview.id} has no URL, skipping health check`);
+      logger$a.warn(`Preview ${preview.id} has no URL, skipping health check`);
       return;
     }
     const processInfo = this.previewProcesses.get(preview.id);
     if (processInfo && processInfo.process && processInfo.process.killed) {
-      logger$9.warn(`Preview ${preview.id} process was killed, restarting...`);
+      logger$a.warn(`Preview ${preview.id} process was killed, restarting...`);
       await this.handlePreviewRestart(preview, "Process was killed");
       return;
     }
     try {
       const healthResult = await this.healthChecker.checkHealth(url, 1e4);
       if (!healthResult.success) {
-        logger$9.warn(`Preview ${preview.id} health check failed: ${healthResult.error}`);
+        logger$a.warn(`Preview ${preview.id} health check failed: ${healthResult.error}`);
         await this.db.run(
           "UPDATE preview_processes SET last_health_check = CURRENT_TIMESTAMP, error_message = ? WHERE id = ?",
           [`Health check failed: ${healthResult.error}`, preview.id]
@@ -4987,7 +4987,7 @@ data: ${data}
         );
       }
     } catch (error) {
-      logger$9.warn(`Preview ${preview.id} health check error:`, error);
+      logger$a.warn(`Preview ${preview.id} health check error:`, error);
     }
   }
   /**
@@ -4996,14 +4996,14 @@ data: ${data}
   async handlePreviewRestart(preview, reason) {
     const restartAttempts = preview.restart_attempts || 0;
     if (restartAttempts >= this.maxRestartAttempts) {
-      logger$9.error(`Preview ${preview.id} exceeded max restart attempts (${this.maxRestartAttempts}), marking as failed`);
+      logger$a.error(`Preview ${preview.id} exceeded max restart attempts (${this.maxRestartAttempts}), marking as failed`);
       await this.db.run(
         "UPDATE preview_processes SET status = ?, error_message = ? WHERE id = ?",
         ["failed", `Exceeded max restart attempts: ${reason}`, preview.id]
       );
       return;
     }
-    logger$9.info(`Restarting preview ${preview.id} (attempt ${restartAttempts + 1}/${this.maxRestartAttempts}): ${reason}`);
+    logger$a.info(`Restarting preview ${preview.id} (attempt ${restartAttempts + 1}/${this.maxRestartAttempts}): ${reason}`);
     try {
       const processInfo = this.previewProcesses.get(preview.id);
       if (processInfo && processInfo.process) {
@@ -5018,9 +5018,9 @@ data: ${data}
       );
       await new Promise((resolve) => setTimeout(resolve, this.restartDelay));
       await this.restartPreview(preview);
-      logger$9.info(`Successfully restarted preview ${preview.id}`);
+      logger$a.info(`Successfully restarted preview ${preview.id}`);
     } catch (error) {
-      logger$9.error(`Failed to restart preview ${preview.id}:`, error);
+      logger$a.error(`Failed to restart preview ${preview.id}:`, error);
       await this.db.run(
         "UPDATE preview_processes SET status = ?, error_message = ? WHERE id = ?",
         ["failed", `Restart failed: ${error.message}`, preview.id]
@@ -5050,12 +5050,12 @@ data: ${data}
       this.executionErrors.set(executionId, execError);
     }
     if (execError.isHandling) {
-      logger$9.debug(`Already handling error for execution ${executionId}, skipping`);
+      logger$a.debug(`Already handling error for execution ${executionId}, skipping`);
       return;
     }
     const now = Date.now();
     if (execError.lastSent && now - execError.lastSent < 6e4) {
-      logger$9.debug(`Recently sent error for execution ${executionId}, skipping`);
+      logger$a.debug(`Recently sent error for execution ${executionId}, skipping`);
       return;
     }
     execError.errorBuffer.add(errorFound);
@@ -5079,9 +5079,9 @@ data: ${data}
         [executionId]
       );
       if (execution && execution.agent_type === "claude") {
-        logger$9.info(`Checking Claude session status for execution ${executionId}`);
+        logger$a.info(`Checking Claude session status for execution ${executionId}`);
       }
-      logger$9.info(`Sending buffered errors to Claude for execution ${executionId}`);
+      logger$a.info(`Sending buffered errors to Claude for execution ${executionId}`);
       const preview = await this.db.get(
         "SELECT * FROM preview_processes WHERE id = ?",
         [previewId]
@@ -5115,9 +5115,9 @@ Common solutions:
       });
       execError.lastSent = Date.now();
       execError.errorBuffer.clear();
-      logger$9.info(`Successfully sent error message to Claude for execution ${executionId}`);
+      logger$a.info(`Successfully sent error message to Claude for execution ${executionId}`);
     } catch (error) {
-      logger$9.error(`Failed to send error to Claude:`, error);
+      logger$a.error(`Failed to send error to Claude:`, error);
     } finally {
       execError.isHandling = false;
     }
@@ -5131,9 +5131,9 @@ Common solutions:
         "UPDATE preview_processes SET status = ?, error_message = ?, stopped_at = CURRENT_TIMESTAMP WHERE id = ?",
         ["failed", errorMessage, previewId]
       );
-      logger$9.error(`Preview ${previewId} failed: ${errorMessage}`);
+      logger$a.error(`Preview ${previewId} failed: ${errorMessage}`);
     } catch (error) {
-      logger$9.error(`Failed to update preview error status:`, error);
+      logger$a.error(`Failed to update preview error status:`, error);
     }
   }
   /**
@@ -5164,13 +5164,13 @@ Common solutions:
               clearTimeout(execError.timeoutId);
             }
             this.executionErrors.delete(preview.execution_id);
-            logger$9.debug(`Cleaned up error tracking for execution ${preview.execution_id}`);
+            logger$a.debug(`Cleaned up error tracking for execution ${preview.execution_id}`);
           }
         }
       }
-      logger$9.info(`Preview ${previewId} exited with status: ${status}`);
+      logger$a.info(`Preview ${previewId} exited with status: ${status}`);
     } catch (error) {
-      logger$9.error(`Failed to handle preview exit:`, error);
+      logger$a.error(`Failed to handle preview exit:`, error);
     }
   }
 }
@@ -5283,9 +5283,9 @@ function validateMessage(message) {
   }
   return message.trim();
 }
-const logger$8 = createLogger("routes/execute");
-const router$a = express.Router();
-router$a.post("/execute", async (req, res, next) => {
+const logger$9 = createLogger("routes/execute");
+const router$b = express.Router();
+router$b.post("/execute", async (req, res, next) => {
   var _a, _b, _c, _d, _e, _f, _g, _h, _i;
   try {
     const agent = validateAgent(req.body.agent);
@@ -5377,13 +5377,13 @@ router$a.post("/execute", async (req, res, next) => {
           [executionWorkspace.executionPath, actualWorkingDir, executionId]
         );
         await contextManager.startPendingPreviews();
-        logger$8.info("Execution workspace created", {
+        logger$9.info("Execution workspace created", {
           executionId,
           workspace: executionWorkspace.executionPath,
           refs: executionWorkspace.manifest.refs
         });
       } catch (error) {
-        logger$8.error("Failed to set up execution workspace", { executionId, error });
+        logger$9.error("Failed to set up execution workspace", { executionId, error });
         throw new ValidationError(`Failed to set up references: ${error.message}`);
       }
     }
@@ -5450,11 +5450,11 @@ router$a.post("/execute", async (req, res, next) => {
       const streamHandler = req.app.locals.streamHandler;
       const childProcess = await processManager.spawn(executionId, agent, prompt, actualWorkingDir, false);
       childProcess.stdout.on("data", (data) => {
-        logger$8.info("Process stdout", { executionId, length: data.length, preview: data.toString().substring(0, 100) });
+        logger$9.info("Process stdout", { executionId, length: data.length, preview: data.toString().substring(0, 100) });
         streamHandler.handleOutput(executionId, "stdout", data);
       });
       childProcess.stderr.on("data", (data) => {
-        logger$8.info("Process stderr", { executionId, length: data.length, preview: data.toString().substring(0, 100) });
+        logger$9.info("Process stderr", { executionId, length: data.length, preview: data.toString().substring(0, 100) });
         streamHandler.handleOutput(executionId, "stderr", data);
       });
     }
@@ -5478,19 +5478,19 @@ router$a.post("/execute", async (req, res, next) => {
         }
       }
     }
-    logger$8.info("Execution started", { executionId, agent, workingDir: actualWorkingDir, refs });
+    logger$9.info("Execution started", { executionId, agent, workingDir: actualWorkingDir, refs });
     res.status(201).json(response);
   } catch (error) {
     if (error.name === "ValidationError") {
-      logger$8.warn("Validation error", error);
+      logger$9.warn("Validation error", error);
       return res.status(400).json(createErrorResponse(error));
     }
-    logger$8.error("Execution error", error);
+    logger$9.error("Execution error", error);
     next(error);
   }
 });
-const router$9 = express.Router();
-router$9.get("/status/:executionId", async (req, res, next) => {
+const router$a = express.Router();
+router$a.get("/status/:executionId", async (req, res, next) => {
   try {
     const executionId = validateExecutionId(req.params.executionId);
     const { db } = req.app.locals;
@@ -5573,9 +5573,9 @@ router$9.get("/status/:executionId", async (req, res, next) => {
     next(error);
   }
 });
-const logger$7 = createLogger("routes/message");
-const router$8 = express.Router();
-router$8.post("/message/:executionId", async (req, res, next) => {
+const logger$8 = createLogger("routes/message");
+const router$9 = express.Router();
+router$9.post("/message/:executionId", async (req, res, next) => {
   try {
     const executionId = validateExecutionId(req.params.executionId);
     const message = validateMessage(req.body.message);
@@ -5626,7 +5626,7 @@ router$8.post("/message/:executionId", async (req, res, next) => {
         );
         try {
           await promises.access(workspacePath2);
-          logger$7.info(`Resuming execution ${executionId} in existing workspace`);
+          logger$8.info(`Resuming execution ${executionId} in existing workspace`);
           await db.run(
             "UPDATE executions SET status = ?, completed_at = NULL WHERE id = ?",
             [ExecutionStatus.RUNNING, executionId]
@@ -5641,11 +5641,11 @@ router$8.post("/message/:executionId", async (req, res, next) => {
           );
           const streamHandler2 = req.app.locals.streamHandler;
           childProcess2.stdout.on("data", (data) => {
-            logger$7.info("Process stdout", { executionId, length: data.length, preview: data.toString().substring(0, 100) });
+            logger$8.info("Process stdout", { executionId, length: data.length, preview: data.toString().substring(0, 100) });
             streamHandler2.handleOutput(executionId, "stdout", data);
           });
           childProcess2.stderr.on("data", (data) => {
-            logger$7.info("Process stderr", { executionId, length: data.length, preview: data.toString().substring(0, 100) });
+            logger$8.info("Process stderr", { executionId, length: data.length, preview: data.toString().substring(0, 100) });
             streamHandler2.handleOutput(executionId, "stderr", data);
           });
           eventEmitter2.emit("process-start", { executionId, pid: childProcess2.pid });
@@ -5674,7 +5674,7 @@ router$8.post("/message/:executionId", async (req, res, next) => {
         "ProcessManager not initialized"
       );
     }
-    logger$7.info(`Stopping process for execution ${executionId} to restart with continuation`);
+    logger$8.info(`Stopping process for execution ${executionId} to restart with continuation`);
     await processManager.stopProcess(executionId);
     const updatedExecution = await db.get(
       "SELECT * FROM executions WHERE id = ?",
@@ -5695,11 +5695,11 @@ router$8.post("/message/:executionId", async (req, res, next) => {
       // isContinuation = true
     );
     childProcess.stdout.on("data", (data) => {
-      logger$7.info("Process stdout", { executionId, length: data.length, preview: data.toString().substring(0, 100) });
+      logger$8.info("Process stdout", { executionId, length: data.length, preview: data.toString().substring(0, 100) });
       streamHandler.handleOutput(executionId, "stdout", data);
     });
     childProcess.stderr.on("data", (data) => {
-      logger$7.info("Process stderr", { executionId, length: data.length, preview: data.toString().substring(0, 100) });
+      logger$8.info("Process stderr", { executionId, length: data.length, preview: data.toString().substring(0, 100) });
       streamHandler.handleOutput(executionId, "stderr", data);
     });
     eventEmitter.emit("process-start", { executionId, pid: childProcess.pid });
@@ -5721,9 +5721,9 @@ router$8.post("/message/:executionId", async (req, res, next) => {
     next(error);
   }
 });
-const logger$6 = createLogger("routes/logs");
-const router$7 = express.Router();
-router$7.get("/logs/:executionId", async (req, res, next) => {
+const logger$7 = createLogger("routes/logs");
+const router$8 = express.Router();
+router$8.get("/logs/:executionId", async (req, res, next) => {
   var _a;
   try {
     const executionId = validateExecutionId(req.params.executionId);
@@ -5735,7 +5735,7 @@ router$7.get("/logs/:executionId", async (req, res, next) => {
     if (!execution) {
       throw new NotFoundError(`Execution not found: ${executionId}`);
     }
-    logger$6.info("Starting SSE stream", { executionId });
+    logger$7.info("Starting SSE stream", { executionId });
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
@@ -5776,7 +5776,7 @@ router$7.get("/logs/:executionId", async (req, res, next) => {
       res.write(":heartbeat\n\n");
     }, ((_a = config2 == null ? void 0 : config2.streaming) == null ? void 0 : _a.heartbeatInterval) || 3e4);
     req.on("close", () => {
-      logger$6.info("SSE client disconnected", { executionId });
+      logger$7.info("SSE client disconnected", { executionId });
       eventEmitter.removeListener(Events.LOG_ENTRY, logHandler);
       clearInterval(heartbeatInterval);
     });
@@ -5807,25 +5807,25 @@ router$7.get("/logs/:executionId", async (req, res, next) => {
     next(error);
   }
 });
+const router$7 = express.Router();
 const router$6 = express.Router();
-const router$5 = express.Router();
-const logger$5 = createLogger("preview-routes");
+const logger$6 = createLogger("preview-routes");
 let previewManager;
-router$5.use((req, res, next) => {
+router$6.use((req, res, next) => {
   if (!previewManager) {
     previewManager = new PreviewManager(req.app.locals.db, req.app.locals.processManager, req.app.locals.eventEmitter);
   }
   next();
 });
-router$5.get("/:executionId/analyze", async (req, res) => {
+router$6.get("/:executionId/analyze", async (req, res) => {
   try {
     const { executionId } = req.params;
     const { refType, refId } = req.query;
-    logger$5.info(`Analyzing project for execution ${executionId}`, { refType, refId });
+    logger$6.info(`Analyzing project for execution ${executionId}`, { refType, refId });
     const analysis = await previewManager.analyzeProject(executionId, { refType, refId });
     res.json(analysis);
   } catch (error) {
-    logger$5.error("Error analyzing project:", error);
+    logger$6.error("Error analyzing project:", error);
     res.status(error.message === "Execution not found" ? 404 : 500).json({
       error: {
         code: error.message === "Execution not found" ? "EXECUTION_NOT_FOUND" : "ANALYSIS_FAILED",
@@ -5835,12 +5835,12 @@ router$5.get("/:executionId/analyze", async (req, res) => {
     });
   }
 });
-router$5.post("/:executionId/start", async (req, res) => {
+router$6.post("/:executionId/start", async (req, res) => {
   try {
     const { executionId } = req.params;
     const { refType, refId } = req.query;
     const options = { ...req.body, refType, refId };
-    logger$5.info(`Starting preview for execution ${executionId}`, {
+    logger$6.info(`Starting preview for execution ${executionId}`, {
       refType,
       refId,
       queryParams: req.query,
@@ -5850,7 +5850,7 @@ router$5.post("/:executionId/start", async (req, res) => {
     const result = await previewManager.startPreview(executionId, options);
     res.json(result);
   } catch (error) {
-    logger$5.error("Error starting preview:", error);
+    logger$6.error("Error starting preview:", error);
     let errorCode = "PREVIEW_START_FAILED";
     let statusCode = 500;
     if (error.message === "Execution not found") {
@@ -5872,15 +5872,15 @@ router$5.post("/:executionId/start", async (req, res) => {
     });
   }
 });
-router$5.get("/:executionId/status", async (req, res) => {
+router$6.get("/:executionId/status", async (req, res) => {
   try {
     const { executionId } = req.params;
     const { refType, refId } = req.query;
-    logger$5.info(`Getting preview status for execution ${executionId}`, { refType, refId });
+    logger$6.info(`Getting preview status for execution ${executionId}`, { refType, refId });
     const status = await previewManager.getPreviewStatus(executionId, { refType, refId });
     res.json(status);
   } catch (error) {
-    logger$5.error("Error getting preview status:", error);
+    logger$6.error("Error getting preview status:", error);
     res.status(500).json({
       error: {
         code: "STATUS_FAILED",
@@ -5890,16 +5890,16 @@ router$5.get("/:executionId/status", async (req, res) => {
     });
   }
 });
-router$5.post("/:executionId/stop", async (req, res) => {
+router$6.post("/:executionId/stop", async (req, res) => {
   try {
     const { executionId } = req.params;
     const { refType, refId } = req.query;
     const { previewId, cleanup } = req.body;
-    logger$5.info(`Stopping preview for execution ${executionId}`, { previewId, cleanup, refType, refId });
+    logger$6.info(`Stopping preview for execution ${executionId}`, { previewId, cleanup, refType, refId });
     const result = await previewManager.stopPreview(executionId, previewId, { refType, refId });
     res.json(result);
   } catch (error) {
-    logger$5.error("Error stopping preview:", error);
+    logger$6.error("Error stopping preview:", error);
     res.status(500).json({
       error: {
         code: "STOP_FAILED",
@@ -5909,12 +5909,12 @@ router$5.post("/:executionId/stop", async (req, res) => {
     });
   }
 });
-router$5.post("/:executionId/restart", async (req, res) => {
+router$6.post("/:executionId/restart", async (req, res) => {
   try {
     const { executionId } = req.params;
     const { refType, refId } = req.query;
     const { previewId, force = false } = req.body;
-    logger$5.info(`Restarting preview for execution ${executionId}`, { previewId, refType, refId, force });
+    logger$6.info(`Restarting preview for execution ${executionId}`, { previewId, refType, refId, force });
     if (previewId) {
       const preview = await req.app.locals.db.get(
         "SELECT * FROM preview_processes WHERE id = ? AND execution_id = ?",
@@ -5975,7 +5975,7 @@ router$5.post("/:executionId/restart", async (req, res) => {
       });
     }
   } catch (error) {
-    logger$5.error("Error restarting preview:", error);
+    logger$6.error("Error restarting preview:", error);
     let errorCode = "RESTART_FAILED";
     let statusCode = 500;
     if (error.message === "Execution not found") {
@@ -5994,7 +5994,7 @@ router$5.post("/:executionId/restart", async (req, res) => {
     });
   }
 });
-router$5.get("/:executionId/logs", async (req, res) => {
+router$6.get("/:executionId/logs", async (req, res) => {
   try {
     const { executionId } = req.params;
     const { previewId } = req.query;
@@ -6006,7 +6006,7 @@ router$5.get("/:executionId/logs", async (req, res) => {
         }
       });
     }
-    logger$5.info(`Starting log stream for preview ${previewId}`);
+    logger$6.info(`Starting log stream for preview ${previewId}`);
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
@@ -6055,10 +6055,10 @@ data: ${JSON.stringify({
     req.on("close", () => {
       clearInterval(heartbeat);
       previewManager.removeSSEConnection(previewId, res);
-      logger$5.info(`Log stream closed for preview ${previewId}`);
+      logger$6.info(`Log stream closed for preview ${previewId}`);
     });
   } catch (error) {
-    logger$5.error("Error streaming logs:", error);
+    logger$6.error("Error streaming logs:", error);
     res.status(500).json({
       error: {
         code: "STREAM_FAILED",
@@ -6068,16 +6068,16 @@ data: ${JSON.stringify({
     });
   }
 });
-router$5.post("/:executionId/install", async (req, res) => {
+router$6.post("/:executionId/install", async (req, res) => {
   try {
     const { executionId } = req.params;
     const { refType, refId } = req.query;
     const options = { ...req.body, refType, refId };
-    logger$5.info(`Installing dependencies for execution ${executionId}`, options);
+    logger$6.info(`Installing dependencies for execution ${executionId}`, options);
     const result = await previewManager.installDependencies(executionId, options);
     res.json(result);
   } catch (error) {
-    logger$5.error("Error installing dependencies:", error);
+    logger$6.error("Error installing dependencies:", error);
     let errorCode = "INSTALL_FAILED";
     let statusCode = 500;
     if (error.message === "Execution not found") {
@@ -6096,8 +6096,8 @@ router$5.post("/:executionId/install", async (req, res) => {
     });
   }
 });
-const router$4 = express.Router();
-const logger$4 = createLogger("refs-routes");
+const router$5 = express.Router();
+const logger$5 = createLogger("refs-routes");
 let refManager;
 function getRefManager(req) {
   if (!refManager) {
@@ -6105,7 +6105,7 @@ function getRefManager(req) {
   }
   return refManager;
 }
-router$4.get("/refs", async (req, res, next) => {
+router$5.get("/refs", async (req, res, next) => {
   try {
     const manager = getRefManager(req);
     const refsDir = path.join(req.app.locals.workspace.workspace, "refs");
@@ -6141,7 +6141,7 @@ router$4.get("/refs", async (req, res, next) => {
               activeExecutions
             });
           } catch (error) {
-            logger$4.error(`Error getting info for ref ${refId}:`, error);
+            logger$5.error(`Error getting info for ref ${refId}:`, error);
             refs.push({
               refId,
               error: "Failed to get reference info"
@@ -6160,7 +6160,7 @@ router$4.get("/refs", async (req, res, next) => {
     next(error);
   }
 });
-router$4.get("/refs/:refId/info", async (req, res, next) => {
+router$5.get("/refs/:refId/info", async (req, res, next) => {
   try {
     const { refId } = req.params;
     const manager = getRefManager(req);
@@ -6234,7 +6234,7 @@ router$4.get("/refs/:refId/info", async (req, res, next) => {
     next(error);
   }
 });
-router$4.get("/refs/:refId/branches", async (req, res, next) => {
+router$5.get("/refs/:refId/branches", async (req, res, next) => {
   try {
     const { refId } = req.params;
     const manager = getRefManager(req);
@@ -6278,7 +6278,7 @@ router$4.get("/refs/:refId/branches", async (req, res, next) => {
     next(error);
   }
 });
-router$4.post("/refs/:refId/checkout", async (req, res, next) => {
+router$5.post("/refs/:refId/checkout", async (req, res, next) => {
   try {
     const { refId } = req.params;
     const { branch } = req.body;
@@ -6320,7 +6320,7 @@ router$4.post("/refs/:refId/checkout", async (req, res, next) => {
     next(error);
   }
 });
-router$4.get("/refs/:refId/files", async (req, res, next) => {
+router$5.get("/refs/:refId/files", async (req, res, next) => {
   try {
     const { refId } = req.params;
     const { branch = "HEAD", path: dirPath = "", recursive = false } = req.query;
@@ -6360,7 +6360,7 @@ router$4.get("/refs/:refId/files", async (req, res, next) => {
     next(error);
   }
 });
-router$4.get("/refs/:refId/file", async (req, res, next) => {
+router$5.get("/refs/:refId/file", async (req, res, next) => {
   try {
     const { refId } = req.params;
     const { branch = "HEAD", path: filePath } = req.query;
@@ -6442,7 +6442,7 @@ router$4.get("/refs/:refId/file", async (req, res, next) => {
     next(error);
   }
 });
-router$4.post("/refs/:refId/merge", async (req, res, next) => {
+router$5.post("/refs/:refId/merge", async (req, res, next) => {
   try {
     const { refId } = req.params;
     const { sourceBranch, targetBranch = "main", strategy = "merge", commitMessage } = req.body;
@@ -6517,7 +6517,7 @@ router$4.post("/refs/:refId/merge", async (req, res, next) => {
             [null, refId, "merge", sourceBranch, mergeCommit, subject, "success"]
           );
         } catch (dbError) {
-          logger$4.warn("Failed to record merge in database:", dbError);
+          logger$5.warn("Failed to record merge in database:", dbError);
         }
       }
       res.json({
@@ -6594,10 +6594,10 @@ router$4.post("/refs/:refId/merge", async (req, res, next) => {
               await manager.execGit(refPath, "merge --abort");
             }
           } catch (abortError) {
-            logger$4.warn("Failed to abort merge:", abortError);
+            logger$5.warn("Failed to abort merge:", abortError);
           }
         } catch (statusError) {
-          logger$4.warn("Failed to get conflict details:", statusError);
+          logger$5.warn("Failed to get conflict details:", statusError);
         }
         return res.status(409).json({
           success: false,
@@ -6618,13 +6618,13 @@ router$4.post("/refs/:refId/merge", async (req, res, next) => {
       throw error;
     }
   } catch (error) {
-    logger$4.error(`Merge failed for ${req.params.refId}:`, error);
+    logger$5.error(`Merge failed for ${req.params.refId}:`, error);
     try {
       const manager = getRefManager(req);
       const refPath = path.join(req.app.locals.workspace.workspace, "refs", req.params.refId);
       await manager.execGit(refPath, "checkout main");
     } catch (cleanupError) {
-      logger$4.warn("Failed to cleanup after merge error:", cleanupError);
+      logger$5.warn("Failed to cleanup after merge error:", cleanupError);
     }
     res.status(500).json({
       success: false,
@@ -6636,7 +6636,7 @@ router$4.post("/refs/:refId/merge", async (req, res, next) => {
     });
   }
 });
-router$4.get("/refs/:refId/diff", async (req, res, next) => {
+router$5.get("/refs/:refId/diff", async (req, res, next) => {
   try {
     const { refId } = req.params;
     const { from, to = "main", format = "unified" } = req.query;
@@ -6733,6 +6733,303 @@ router$4.get("/refs/:refId/diff", async (req, res, next) => {
     });
   } catch (error) {
     next(error);
+  }
+});
+const logger$4 = createLogger("ref-preview-routes");
+const router$4 = express.Router();
+const activePreviews = /* @__PURE__ */ new Map();
+let currentPort = 3e3;
+const MAX_PORT = 3999;
+function getNextAvailablePort() {
+  currentPort++;
+  if (currentPort > MAX_PORT) {
+    currentPort = 3e3;
+  }
+  return currentPort;
+}
+async function detectPackageManager(refPath) {
+  try {
+    await promises.access(path.join(refPath, "package-lock.json"));
+    return "npm";
+  } catch {
+  }
+  try {
+    await promises.access(path.join(refPath, "yarn.lock"));
+    return "yarn";
+  } catch {
+  }
+  try {
+    await promises.access(path.join(refPath, "pnpm-lock.yaml"));
+    return "pnpm";
+  } catch {
+  }
+  try {
+    await promises.access(path.join(refPath, "bun.lockb"));
+    return "bun";
+  } catch {
+  }
+  try {
+    await promises.access(path.join(refPath, "package.json"));
+    return "npm";
+  } catch {
+  }
+  return null;
+}
+function getRefPath(workspace, refId) {
+  return path.join(workspace, "refs", refId);
+}
+router$4.post("/refs/:refId/preview/start", async (req, res) => {
+  try {
+    const { refId } = req.params;
+    const { workspace } = req.app.locals;
+    logger$4.info(`Starting preview for ref ${refId}`);
+    if (activePreviews.has(refId)) {
+      const preview2 = activePreviews.get(refId);
+      if (preview2.status === "running") {
+        return res.json({
+          success: true,
+          previewId: preview2.id,
+          port: preview2.port,
+          url: `http://localhost:${preview2.port}`,
+          status: "running"
+        });
+      }
+    }
+    const refPath = getRefPath(workspace.workspace, refId);
+    try {
+      await promises.access(refPath);
+    } catch {
+      return res.status(404).json({
+        error: {
+          code: "REF_NOT_FOUND",
+          message: `Reference ${refId} not found`
+        }
+      });
+    }
+    const packageManager = await detectPackageManager(refPath);
+    if (!packageManager) {
+      return res.status(400).json({
+        error: {
+          code: "NO_PACKAGE_JSON",
+          message: "No package.json found in reference"
+        }
+      });
+    }
+    const previewId = v4();
+    const port = getNextAvailablePort();
+    const preview = {
+      id: previewId,
+      refId,
+      port,
+      status: "installing",
+      logs: [],
+      process: null,
+      eventEmitter: new EventEmitter()
+    };
+    activePreviews.set(refId, preview);
+    logger$4.info(`Installing dependencies with ${packageManager} for ref ${refId}`);
+    const installCmd = packageManager === "npm" ? "npm" : packageManager;
+    const installArgs = ["install"];
+    const installProcess = spawn(installCmd, installArgs, {
+      cwd: refPath,
+      env: { ...process.env, CI: "true" }
+    });
+    installProcess.stdout.on("data", (data) => {
+      const log = { timestamp: (/* @__PURE__ */ new Date()).toISOString(), type: "info", content: data.toString() };
+      preview.logs.push(log);
+      preview.eventEmitter.emit("log", log);
+    });
+    installProcess.stderr.on("data", (data) => {
+      const log = { timestamp: (/* @__PURE__ */ new Date()).toISOString(), type: "error", content: data.toString() };
+      preview.logs.push(log);
+      preview.eventEmitter.emit("log", log);
+    });
+    installProcess.on("close", (code) => {
+      if (code !== 0) {
+        preview.status = "error";
+        preview.eventEmitter.emit("status", { status: "error" });
+        return;
+      }
+      preview.status = "starting";
+      preview.eventEmitter.emit("status", { status: "starting" });
+      logger$4.info(`Starting dev server on port ${port} for ref ${refId}`);
+      const devCmd = packageManager === "npm" ? "npm" : packageManager;
+      const devArgs = ["run", "dev"];
+      const devProcess = spawn(devCmd, devArgs, {
+        cwd: refPath,
+        env: {
+          ...process.env,
+          PORT: port.toString(),
+          VITE_PORT: port.toString(),
+          // For Vite
+          NEXT_PORT: port.toString(),
+          // For Next.js
+          REACT_APP_PORT: port.toString()
+          // For CRA
+        }
+      });
+      preview.process = devProcess;
+      devProcess.stdout.on("data", (data) => {
+        const log = { timestamp: (/* @__PURE__ */ new Date()).toISOString(), type: "info", content: data.toString() };
+        preview.logs.push(log);
+        preview.eventEmitter.emit("log", log);
+        const output = data.toString().toLowerCase();
+        if (output.includes("ready") || output.includes("running") || output.includes("started") || output.includes(`localhost:${port}`)) {
+          preview.status = "running";
+          preview.eventEmitter.emit("status", {
+            status: "running",
+            port: preview.port,
+            url: `http://localhost:${preview.port}`
+          });
+        }
+      });
+      devProcess.stderr.on("data", (data) => {
+        const log = { timestamp: (/* @__PURE__ */ new Date()).toISOString(), type: "error", content: data.toString() };
+        preview.logs.push(log);
+        preview.eventEmitter.emit("log", log);
+      });
+      devProcess.on("close", (code2) => {
+        logger$4.info(`Dev server for ref ${refId} exited with code ${code2}`);
+        preview.status = "stopped";
+        preview.eventEmitter.emit("status", { status: "stopped" });
+        activePreviews.delete(refId);
+      });
+    });
+    res.json({
+      success: true,
+      previewId,
+      port,
+      status: "installing"
+    });
+  } catch (error) {
+    logger$4.error("Error starting preview:", error);
+    res.status(500).json({
+      error: {
+        code: "PREVIEW_START_FAILED",
+        message: error.message
+      }
+    });
+  }
+});
+router$4.get("/refs/:refId/preview/status", async (req, res) => {
+  try {
+    const { refId } = req.params;
+    const preview = activePreviews.get(refId);
+    if (!preview) {
+      return res.json({
+        status: "stopped",
+        running: false
+      });
+    }
+    res.json({
+      status: preview.status,
+      running: preview.status === "running",
+      port: preview.port,
+      url: preview.status === "running" ? `http://localhost:${preview.port}` : void 0,
+      previewId: preview.id
+    });
+  } catch (error) {
+    logger$4.error("Error getting preview status:", error);
+    res.status(500).json({
+      error: {
+        code: "STATUS_FAILED",
+        message: error.message
+      }
+    });
+  }
+});
+router$4.post("/refs/:refId/preview/stop", async (req, res) => {
+  try {
+    const { refId } = req.params;
+    const preview = activePreviews.get(refId);
+    if (!preview) {
+      return res.json({ success: true });
+    }
+    if (preview.process) {
+      preview.process.kill("SIGTERM");
+      setTimeout(() => {
+        if (preview.process && !preview.process.killed) {
+          preview.process.kill("SIGKILL");
+        }
+      }, 5e3);
+    }
+    activePreviews.delete(refId);
+    res.json({ success: true });
+  } catch (error) {
+    logger$4.error("Error stopping preview:", error);
+    res.status(500).json({
+      error: {
+        code: "STOP_FAILED",
+        message: error.message
+      }
+    });
+  }
+});
+router$4.get("/refs/:refId/preview/logs", async (req, res) => {
+  try {
+    const { refId } = req.params;
+    const { previewId } = req.query;
+    const preview = activePreviews.get(refId);
+    if (!preview || preview.id !== previewId) {
+      return res.status(404).json({
+        error: {
+          code: "PREVIEW_NOT_FOUND",
+          message: "Preview not found"
+        }
+      });
+    }
+    logger$4.info(`Starting log stream for ref ${refId} preview ${previewId}`);
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
+      "Access-Control-Allow-Origin": "*"
+    });
+    preview.logs.slice(-50).forEach((log) => {
+      res.write(`event: log
+data: ${JSON.stringify(log)}
+
+`);
+    });
+    res.write(`event: status
+data: ${JSON.stringify({
+      status: preview.status,
+      port: preview.port,
+      url: preview.status === "running" ? `http://localhost:${preview.port}` : void 0
+    })}
+
+`);
+    const logHandler = (log) => {
+      res.write(`event: log
+data: ${JSON.stringify(log)}
+
+`);
+    };
+    const statusHandler = (status) => {
+      res.write(`event: status
+data: ${JSON.stringify(status)}
+
+`);
+    };
+    preview.eventEmitter.on("log", logHandler);
+    preview.eventEmitter.on("status", statusHandler);
+    const heartbeat = setInterval(() => {
+      res.write(":heartbeat\n\n");
+    }, 3e4);
+    req.on("close", () => {
+      clearInterval(heartbeat);
+      preview.eventEmitter.off("log", logHandler);
+      preview.eventEmitter.off("status", statusHandler);
+      logger$4.info(`Log stream closed for ref ${refId}`);
+    });
+  } catch (error) {
+    logger$4.error("Error streaming logs:", error);
+    res.status(500).json({
+      error: {
+        code: "STREAM_FAILED",
+        message: error.message
+      }
+    });
   }
 });
 const logger$3 = createLogger("CleanupManager");
@@ -7750,12 +8047,13 @@ class IntentServer {
         // 5 minutes
       });
       app$1.locals.resourceMonitor.start();
+      app$1.use("/", router$b);
       app$1.use("/", router$a);
       app$1.use("/", router$9);
       app$1.use("/", router$8);
       app$1.use("/", router$7);
-      app$1.use("/", router$6);
-      app$1.use("/preview", router$5);
+      app$1.use("/preview", router$6);
+      app$1.use("/", router$5);
       app$1.use("/", router$4);
       app$1.use("/", router$3);
       app$1.use("/", router$2);

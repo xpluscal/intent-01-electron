@@ -34,6 +34,33 @@ interface IntentAPI {
   checkGit: () => Promise<{ installed: boolean; version?: string }>
   initGit: (refPath: string) => Promise<{ success: boolean; error?: string }>
   installGit: () => Promise<{ success: boolean; message?: string; error?: string }>
+  
+  // Preview operations
+  startPreview: (refId: string) => Promise<PreviewStartResult>
+  stopPreview: (refId: string) => Promise<{ success: boolean }>
+  getPreviewStatus: (refId: string) => Promise<PreviewStatus>
+}
+
+interface PreviewStatus {
+  running: boolean
+  status: 'stopped' | 'installing' | 'starting' | 'running' | 'error'
+  port?: number
+  url?: string
+  error?: string
+}
+
+interface PreviewStartResult {
+  success: boolean
+  previewId?: string
+  port?: number
+  url?: string
+  error?: string
+}
+
+interface PreviewLog {
+  timestamp: string
+  type: 'info' | 'error' | 'warning' | 'system'
+  content: string
 }
 
 declare global {

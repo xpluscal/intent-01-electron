@@ -13,6 +13,7 @@ interface ProjectFileTreeProps {
   projects: Project[]
   onSelectFile: (path: string) => void
   selectedFile: string | null
+  selectedArtifact?: string | null
   showProjects: boolean
   loading?: boolean
   onRefresh?: () => void
@@ -26,6 +27,7 @@ export function ProjectFileTree({
   projects, 
   onSelectFile, 
   selectedFile,
+  selectedArtifact,
   showProjects = true,
   loading = false,
   onRefresh,
@@ -567,6 +569,7 @@ export function ProjectFileTree({
   const renderNode = (node: ProjectFileNode, depth = 0) => {
     const isExpanded = expandedNodes.has(node.path)
     const isSelected = selectedFile === node.path
+    const isArtifactSelected = node.nodeType === 'reference' && node.metadata?.refType === 'artifact' && node.refId === selectedArtifact
     const isClickable = node.type === 'file' || (node.type === 'directory' && !node.path.startsWith('project:'))
     const isDragOver = dragOverNode === node.path
     const isHighlighted = hoveredArtifact && node.refId && artifactReadRefs.has(node.refId)
@@ -595,6 +598,7 @@ export function ProjectFileTree({
             className={cn(
               'w-full justify-start px-2 py-1 h-7 font-normal cursor-pointer group',
               isSelected && 'bg-accent',
+              isArtifactSelected && 'bg-muted',
               isDragOver && 'bg-primary/20 border-2 border-primary border-dashed',
               node.nodeType === 'reference' && 'cursor-move',
               node.name === 'Unassigned References' && 'bg-orange-50 dark:bg-orange-950/20 border-l-2 border-orange-300 dark:border-orange-700',
