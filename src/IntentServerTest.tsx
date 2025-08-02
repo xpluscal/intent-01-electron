@@ -1,14 +1,5 @@
 import { useState, useEffect } from 'react'
 
-declare global {
-  interface Window {
-    intentAPI: {
-      getServerStatus: () => Promise<{ running: boolean; port: number | null }>
-      serverUrl: string
-    }
-  }
-}
-
 export function IntentServerTest() {
   const [serverStatus, setServerStatus] = useState<{ running: boolean; port: number | null } | null>(null)
   const [healthCheck, setHealthCheck] = useState<any>(null)

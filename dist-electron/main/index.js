@@ -7970,6 +7970,126 @@ ipcMain.handle("intent-server:status", () => {
     port: (intentServer == null ? void 0 : intentServer.getPort()) || null
   };
 });
+ipcMain.handle("intent:get-workspace-path", () => {
+  const userDataPath = app.getPath("userData");
+  return path.join(userDataPath, "intent-workspace", "refs");
+});
+ipcMain.handle("intent:list-files", async (event, dirPath) => {
+  const { promises: fs2 } = await import("node:fs");
+  const userDataPath = app.getPath("userData");
+  const workspacePath = path.join(userDataPath, "intent-workspace");
+  const fullPath = path.join(workspacePath, dirPath);
+  if (!fullPath.startsWith(workspacePath)) {
+    throw new Error("Access denied: Path outside workspace");
+  }
+  try {
+    const items = await fs2.readdir(fullPath, { withFileTypes: true });
+    return items.map((item) => ({
+      name: item.name,
+      path: path.join(dirPath, item.name),
+      type: item.isDirectory() ? "directory" : "file"
+    }));
+  } catch (error) {
+    console.error("Error listing files:", error);
+    return [];
+  }
+});
+ipcMain.handle("intent:read-file", async (event, filePath) => {
+  const { promises: fs2 } = await import("node:fs");
+  const userDataPath = app.getPath("userData");
+  const workspacePath = path.join(userDataPath, "intent-workspace");
+  const fullPath = path.join(workspacePath, filePath);
+  if (!fullPath.startsWith(workspacePath)) {
+    throw new Error("Access denied: Path outside workspace");
+  }
+  return fs2.readFile(fullPath, "utf-8");
+});
+ipcMain.handle("intent:write-file", async (event, filePath, content) => {
+  const { promises: fs2 } = await import("node:fs");
+  const userDataPath = app.getPath("userData");
+  const workspacePath = path.join(userDataPath, "intent-workspace");
+  const fullPath = path.join(workspacePath, filePath);
+  if (!fullPath.startsWith(workspacePath)) {
+    throw new Error("Access denied: Path outside workspace");
+  }
+  await fs2.writeFile(fullPath, content, "utf-8");
+  return true;
+});
+ipcMain.handle("intent:create-file", async (event, filePath, content = "") => {
+  const { promises: fs2 } = await import("node:fs");
+  const userDataPath = app.getPath("userData");
+  const workspacePath = path.join(userDataPath, "intent-workspace");
+  const fullPath = path.join(workspacePath, filePath);
+  if (!fullPath.startsWith(workspacePath)) {
+    throw new Error("Access denied: Path outside workspace");
+  }
+  await fs2.mkdir(path.dirname(fullPath), { recursive: true });
+  await fs2.writeFile(fullPath, content, "utf-8");
+  return true;
+});
+ipcMain.handle("intent:delete-file", async (event, filePath) => {
+  const { promises: fs2 } = await import("node:fs");
+  const userDataPath = app.getPath("userData");
+  const workspacePath = path.join(userDataPath, "intent-workspace");
+  const fullPath = path.join(workspacePath, filePath);
+  if (!fullPath.startsWith(workspacePath)) {
+    throw new Error("Access denied: Path outside workspace");
+  }
+  await fs2.unlink(fullPath);
+  return true;
+});
+ipcMain.handle("intent:create-directory", async (event, dirPath) => {
+  const { promises: fs2 } = await import("node:fs");
+  const userDataPath = app.getPath("userData");
+  const workspacePath = path.join(userDataPath, "intent-workspace");
+  const fullPath = path.join(workspacePath, dirPath);
+  if (!fullPath.startsWith(workspacePath)) {
+    throw new Error("Access denied: Path outside workspace");
+  }
+  await fs2.mkdir(fullPath, { recursive: true });
+  return true;
+});
+ipcMain.handle("intent:rename-file", async (event, oldPath, newPath) => {
+  const { promises: fs2 } = await import("node:fs");
+  const userDataPath = app.getPath("userData");
+  const workspacePath = path.join(userDataPath, "intent-workspace");
+  const fullOldPath = path.join(workspacePath, oldPath);
+  const fullNewPath = path.join(workspacePath, newPath);
+  if (!fullOldPath.startsWith(workspacePath) || !fullNewPath.startsWith(workspacePath)) {
+    throw new Error("Access denied: Path outside workspace");
+  }
+  await fs2.rename(fullOldPath, fullNewPath);
+  return true;
+});
+ipcMain.handle("intent:scan-refs", async () => {
+  const { promises: fs2 } = await import("node:fs");
+  const userDataPath = app.getPath("userData");
+  const refsPath = path.join(userDataPath, "intent-workspace", "refs");
+  try {
+    const items = await fs2.readdir(refsPath, { withFileTypes: true });
+    const refs = items.filter((item) => item.isDirectory()).map((item) => ({
+      id: item.name,
+      name: item.name,
+      path: path.join("refs", item.name)
+    }));
+    return refs;
+  } catch (error) {
+    console.error("Error scanning refs:", error);
+    return [];
+  }
+});
+ipcMain.handle("intent:check-metadata-exists", async (event, filePath) => {
+  const { promises: fs2 } = await import("node:fs");
+  const userDataPath = app.getPath("userData");
+  const workspacePath = path.join(userDataPath, "intent-workspace");
+  const fullPath = path.join(workspacePath, filePath);
+  try {
+    await fs2.access(fullPath);
+    return true;
+  } catch {
+    return false;
+  }
+});
 export {
   MAIN_DIST,
   RENDERER_DIST,

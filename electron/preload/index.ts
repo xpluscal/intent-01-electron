@@ -27,7 +27,21 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
 contextBridge.exposeInMainWorld('intentAPI', {
   getServerStatus: () => ipcRenderer.invoke('intent-server:status'),
   // The server runs on localhost:3456, so we'll provide the base URL
-  serverUrl: 'http://localhost:3456'
+  serverUrl: 'http://localhost:3456',
+  
+  // File operations
+  getWorkspacePath: () => ipcRenderer.invoke('intent:get-workspace-path'),
+  listFiles: (dirPath: string) => ipcRenderer.invoke('intent:list-files', dirPath),
+  readFile: (filePath: string) => ipcRenderer.invoke('intent:read-file', filePath),
+  writeFile: (filePath: string, content: string) => ipcRenderer.invoke('intent:write-file', filePath, content),
+  createFile: (filePath: string, content: string) => ipcRenderer.invoke('intent:create-file', filePath, content),
+  deleteFile: (filePath: string) => ipcRenderer.invoke('intent:delete-file', filePath),
+  createDirectory: (dirPath: string) => ipcRenderer.invoke('intent:create-directory', dirPath),
+  renameFile: (oldPath: string, newPath: string) => ipcRenderer.invoke('intent:rename-file', oldPath, newPath),
+  
+  // Project management
+  scanRefs: () => ipcRenderer.invoke('intent:scan-refs'),
+  checkMetadataExists: (filePath: string) => ipcRenderer.invoke('intent:check-metadata-exists', filePath),
 })
 
 // --------- Preload scripts loading ---------
