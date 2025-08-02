@@ -8,6 +8,7 @@ import {
 } from "convex/react";
 import { api } from "../convex/_generated/api";
 import { SignInButton, SignUpButton, UserButton } from "@clerk/clerk-react";
+import { IntentServerTest } from "./IntentServerTest";
 
 export default function App() {
   return (
@@ -20,6 +21,7 @@ export default function App() {
         <h1 className="text-4xl font-bold text-center">
           Convex + React + Clerk
         </h1>
+        <IntentServerTest />
         <Authenticated>
           <Content />
         </Authenticated>

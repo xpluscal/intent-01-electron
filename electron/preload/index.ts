@@ -23,6 +23,13 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
   // ...
 })
 
+// Expose Intent Server API
+contextBridge.exposeInMainWorld('intentAPI', {
+  getServerStatus: () => ipcRenderer.invoke('intent-server:status'),
+  // The server runs on localhost:3456, so we'll provide the base URL
+  serverUrl: 'http://localhost:3456'
+})
+
 // --------- Preload scripts loading ---------
 function domReady(condition: DocumentReadyState[] = ['complete', 'interactive']) {
   return new Promise(resolve => {

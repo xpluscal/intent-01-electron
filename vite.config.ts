@@ -36,6 +36,9 @@ export default defineConfig(({ command }) => {
               outDir: 'dist-electron/main',
               rollupOptions: {
                 external: Object.keys('dependencies' in pkg ? pkg.dependencies : {}),
+                output: {
+                  format: 'es',
+                },
               },
             },
           },
@@ -66,8 +69,8 @@ export default defineConfig(({ command }) => {
         '@': path.resolve(__dirname, './src'),
       },
     },
-    server: process.env.VSCODE_DEBUG ? (() => {
-      const url = new URL(pkg.debug.env.VITE_DEV_SERVER_URL)
+    server: process.env.VSCODE_DEBUG && process.env.VITE_DEV_SERVER_URL ? (() => {
+      const url = new URL(process.env.VITE_DEV_SERVER_URL)
       return {
         host: url.hostname,
         port: +url.port,

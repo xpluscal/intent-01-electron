@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import os from 'node:os'
 import { update } from './update'
+import { IntentServer } from './serverIntegration'
 
 const require = createRequire(import.meta.url)
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -43,10 +44,15 @@ let win: BrowserWindow | null = null
 const preload = path.join(__dirname, '../preload/index.mjs')
 const indexHtml = path.join(RENDERER_DIST, 'index.html')
 
+// Initialize Intent server
+let intentServer: IntentServer | null = null
+
 async function createWindow() {
   win = new BrowserWindow({
     title: 'Main window',
     icon: path.join(process.env.VITE_PUBLIC, 'favicon.ico'),
+    width: 1280,
+    height: 720,
     webPreferences: {
       preload,
       // Warning: Enable nodeIntegration and disable contextIsolation is not secure in production
@@ -61,7 +67,7 @@ async function createWindow() {
   if (VITE_DEV_SERVER_URL) { // #298
     win.loadURL(VITE_DEV_SERVER_URL)
     // Open devTool if the app is not packaged
-    win.webContents.openDevTools()
+    // win.webContents.openDevTools()
   } else {
     win.loadFile(indexHtml)
   }
@@ -81,10 +87,33 @@ async function createWindow() {
   update(win)
 }
 
-app.whenReady().then(createWindow)
+app.whenReady().then(async () => {
+  // Start Intent server first
+  try {
+    intentServer = new IntentServer({ port: 3456 })
+    await intentServer.start()
+    console.log('Intent server started successfully on port 3456')
+  } catch (error) {
+    console.error('Failed to start Intent server:', error)
+  }
+  
+  // Then create the window
+  createWindow()
+})
 
-app.on('window-all-closed', () => {
+app.on('window-all-closed', async () => {
   win = null
+  
+  // Stop Intent server
+  if (intentServer) {
+    try {
+      await intentServer.stop()
+      console.log('Intent server stopped')
+    } catch (error) {
+      console.error('Error stopping Intent server:', error)
+    }
+  }
+  
   if (process.platform !== 'darwin') app.quit()
 })
 
@@ -119,5 +148,13 @@ ipcMain.handle('open-win', (_, arg) => {
     childWindow.loadURL(`${VITE_DEV_SERVER_URL}#${arg}`)
   } else {
     childWindow.loadFile(indexHtml, { hash: arg })
+  }
+})
+
+// Intent server status handler
+ipcMain.handle('intent-server:status', () => {
+  return {
+    running: intentServer?.isServerRunning() || false,
+    port: intentServer?.getPort() || null
   }
 })

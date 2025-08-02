@@ -1,0 +1,740 @@
+const { spawn } = require('child_process');
+const { v4: uuidv4 } = require('uuid');
+const os = require('os');
+const path = require('path');
+const { createLogger } = require('../logger');
+const PortAllocator = require('./portAllocator');
+const ProjectAnalyzer = require('./projectAnalyzer');
+const HealthChecker = require('./healthChecker');
+
+const logger = createLogger('previewManager');
+
+class PreviewManager {
+  constructor(db, processManager) {
+    this.db = db;
+    this.processManager = processManager;
+    this.portAllocator = new PortAllocator(db);
+    this.projectAnalyzer = new ProjectAnalyzer();
+    this.healthChecker = new HealthChecker();
+    this.previewProcesses = new Map();
+    this.sseConnections = new Map();
+  }
+
+  async analyzeProject(executionId, options = {}) {
+    try {
+      const execution = await this.db.get(
+        'SELECT * FROM executions WHERE id = ?',
+        [executionId]
+      );
+
+      if (!execution) {
+        throw new Error('Execution not found');
+      }
+
+      // Determine the working directory based on reference info
+      let workingDir = execution.working_dir;
+      if (options.refType && options.refId) {
+        // Use reference-specific directory within the execution workspace
+        const baseWorkspace = execution.workspace_path || execution.working_dir;
+        workingDir = path.join(baseWorkspace, options.refType, options.refId);
+        logger.info(`Using reference-specific directory: ${workingDir}`);
+      }
+      const projectInfo = await this.projectAnalyzer.detectProjectType(workingDir);
+      const scripts = await this.projectAnalyzer.getAvailableScripts(workingDir, projectInfo.projectType);
+      const suggestedCommand = this.projectAnalyzer.getSuggestedCommand(scripts);
+      const dependencies = {
+        installed: await this.projectAnalyzer.checkDependenciesInstalled(workingDir, projectInfo.projectType),
+        manager: this.projectAnalyzer.detectPackageManager(projectInfo.configFiles)
+      };
+
+      let detectedPort = null;
+      if (suggestedCommand) {
+        detectedPort = await this.projectAnalyzer.detectPort(workingDir, suggestedCommand, projectInfo.framework);
+      }
+
+      const port = {
+        detected: detectedPort,
+        available: detectedPort ? await this.portAllocator.isPortAvailable(detectedPort) : null
+      };
+
+      return {
+        executionId,
+        refType: options.refType,
+        refId: options.refId,
+        workingDir,
+        projectType: projectInfo.projectType,
+        framework: projectInfo.framework,
+        configFiles: projectInfo.configFiles,
+        availableScripts: scripts,
+        suggestedCommand,
+        dependencies,
+        port
+      };
+    } catch (error) {
+      logger.error(`Error analyzing project for execution ${executionId}:`, error);
+      throw error;
+    }
+  }
+
+  async startPreview(executionId, options = {}) {
+    try {
+      const execution = await this.db.get(
+        'SELECT * FROM executions WHERE id = ?',
+        [executionId]
+      );
+
+      if (!execution) {
+        throw new Error('Execution not found');
+      }
+
+      // Check if there's already a running preview for this reference
+      if (options.refType && options.refId) {
+        const existingPreview = await this.db.get(
+          'SELECT * FROM preview_processes WHERE execution_id = ? AND ref_type = ? AND ref_id = ? AND status IN (?, ?)',
+          [executionId, options.refType, options.refId, 'starting', 'running']
+        );
+        
+        if (existingPreview) {
+          logger.info(`Found existing preview for ${options.refType}/${options.refId}: ${existingPreview.id}`);
+          const urls = existingPreview.urls ? JSON.parse(existingPreview.urls) : {};
+          return {
+            success: true,
+            previewId: existingPreview.id,
+            executionId,
+            refType: options.refType,
+            refId: options.refId,
+            workingDir: existingPreview.working_dir,
+            status: existingPreview.status,
+            command: existingPreview.command,
+            pid: existingPreview.pid,
+            port: existingPreview.port,
+            urls,
+            startedAt: existingPreview.started_at,
+            existing: true
+          };
+        }
+      }
+
+      // Determine the working directory based on reference info
+      let workingDir = execution.working_dir;
+      if (options.refType && options.refId) {
+        // Use reference-specific directory within the execution workspace
+        const baseWorkspace = execution.workspace_path || execution.working_dir;
+        workingDir = path.join(baseWorkspace, options.refType, options.refId);
+        logger.info(`Starting preview in reference directory: ${workingDir}`);
+      }
+      const previewId = uuidv4();
+
+      // Always check if dependencies need to be installed
+      const analysis = await this.analyzeProject(executionId, { refType: options.refType, refId: options.refId });
+      
+      if (options.installDependencies || !analysis.dependencies.installed) {
+        logger.info(`Installing dependencies in ${workingDir}`);
+        try {
+          const installResult = await this.installDependencies(executionId, { 
+            manager: 'auto', 
+            workingDir,
+            refType: options.refType,
+            refId: options.refId 
+          });
+          logger.info(`Dependencies installed successfully`, installResult);
+        } catch (installError) {
+          logger.error(`Failed to install dependencies: ${installError.message}`);
+          throw new Error(`Dependency installation failed: ${installError.message}`);
+        }
+      }
+      let command = options.customCommand || 
+        (options.command && analysis.availableScripts[options.command]) ||
+        analysis.availableScripts[analysis.suggestedCommand];
+
+      if (!command) {
+        throw new Error('No command specified or available');
+      }
+
+      // Let the app choose its own port - we'll parse it from output
+      let assignedPort = null;
+      
+      // For now, don't inject port into command - let app auto-assign
+      // We'll parse the actual port from the process output
+
+      const env = {
+        ...process.env,
+        NODE_ENV: 'development',
+        ...options.env
+      };
+
+      // URLs will be updated once we detect the actual port
+      const urls = {
+        local: null,
+        network: null,
+        public: null
+      };
+
+      // Store preview with reference information (port will be updated when detected)
+      await this.db.run(
+        `INSERT INTO preview_processes (id, execution_id, command, port, status, urls, pid, ref_type, ref_id, working_dir)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [previewId, executionId, command, null, 'starting', JSON.stringify(urls), null, 
+         options.refType || null, options.refId || null, workingDir]
+      );
+
+      logger.info(`Starting app with command: ${command} in directory: ${workingDir}`);
+      
+      const [cmd, ...args] = command.split(' ');
+      const childProcess = spawn(cmd, args, {
+        cwd: workingDir,
+        env,
+        shell: true,
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+
+      if (!childProcess.pid) {
+        throw new Error('Failed to start process');
+      }
+
+      this.previewProcesses.set(previewId, childProcess);
+      
+      logger.info(`Started process with PID: ${childProcess.pid}`);
+
+      await this.db.run(
+        'UPDATE preview_processes SET pid = ? WHERE id = ?',
+        [childProcess.pid, previewId]
+      );
+
+      childProcess.stdout.on('data', (data) => {
+        const output = data.toString();
+        this.handleProcessOutput(previewId, 'stdout', output);
+        
+        // Try to parse port from output
+        if (!assignedPort) {
+          assignedPort = this.parsePortFromOutput(output, analysis.framework);
+          if (assignedPort) {
+            this.updatePreviewPort(previewId, assignedPort);
+          }
+        }
+      });
+
+      childProcess.stderr.on('data', (data) => {
+        const output = data.toString();
+        this.handleProcessOutput(previewId, 'stderr', output);
+        
+        // Try to parse port from stderr too (some frameworks log to stderr)
+        if (!assignedPort) {
+          assignedPort = this.parsePortFromOutput(output, analysis.framework);
+          if (assignedPort) {
+            this.updatePreviewPort(previewId, assignedPort);
+          }
+        }
+      });
+
+      childProcess.on('error', (error) => {
+        this.handleProcessError(previewId, error);
+      });
+
+      childProcess.on('exit', (code, signal) => {
+        this.handleProcessExit(previewId, code, signal);
+      });
+
+      // Health checking is now handled dynamically once port is detected
+
+      return {
+        success: true,
+        previewId,
+        executionId,
+        refType: options.refType,
+        refId: options.refId,
+        workingDir,
+        status: 'starting',
+        command,
+        pid: childProcess.pid,
+        port: assignedPort, // Will be null initially, updated when parsed
+        urls,
+        startedAt: new Date().toISOString()
+      };
+    } catch (error) {
+      logger.error(`Error starting preview for execution ${executionId}:`, error);
+      throw error;
+    }
+  }
+
+  async stopPreview(executionId, previewId = null, options = {}) {
+    try {
+      let previewsToStop = [];
+
+      if (previewId) {
+        const preview = await this.db.get(
+          'SELECT * FROM preview_processes WHERE id = ? AND execution_id = ?',
+          [previewId, executionId]
+        );
+        if (preview) {
+          previewsToStop.push(preview);
+        }
+      } else if (options.refType && options.refId) {
+        // Stop only previews for specific reference
+        previewsToStop = await this.db.all(
+          'SELECT * FROM preview_processes WHERE execution_id = ? AND ref_type = ? AND ref_id = ? AND status IN (?, ?)',
+          [executionId, options.refType, options.refId, 'starting', 'running']
+        );
+      } else {
+        // Stop all previews for execution
+        previewsToStop = await this.db.all(
+          'SELECT * FROM preview_processes WHERE execution_id = ? AND status IN (?, ?)',
+          [executionId, 'starting', 'running']
+        );
+      }
+
+      const stoppedIds = [];
+
+      for (const preview of previewsToStop) {
+        const process = this.previewProcesses.get(preview.id);
+        if (process) {
+          process.kill('SIGTERM');
+          
+          setTimeout(() => {
+            if (!process.killed) {
+              process.kill('SIGKILL');
+            }
+          }, 5000);
+        }
+
+        await this.portAllocator.releasePortsByPreviewId(preview.id);
+        
+        await this.db.run(
+          'UPDATE preview_processes SET status = ?, stopped_at = CURRENT_TIMESTAMP WHERE id = ?',
+          ['stopped', preview.id]
+        );
+
+        this.previewProcesses.delete(preview.id);
+        stoppedIds.push(preview.id);
+      }
+
+      return {
+        success: true,
+        stopped: stoppedIds,
+        stoppedAt: new Date().toISOString()
+      };
+    } catch (error) {
+      logger.error(`Error stopping preview:`, error);
+      throw error;
+    }
+  }
+
+  async getPreviewStatus(executionId, options = {}) {
+    try {
+      let query = 'SELECT * FROM preview_processes WHERE execution_id = ?';
+      const params = [executionId];
+      
+      if (options.refType && options.refId) {
+        query += ' AND ref_type = ? AND ref_id = ?';
+        params.push(options.refType, options.refId);
+      }
+      
+      query += ' ORDER BY started_at DESC';
+      
+      const previews = await this.db.all(query, params);
+
+      const results = [];
+
+      for (const preview of previews) {
+        const urls = JSON.parse(preview.urls || '{}');
+        let health = null;
+
+        if (preview.status === 'running' && urls.local) {
+          const healthCheck = await this.healthChecker.checkHealth(urls.local);
+          health = {
+            responsive: healthCheck.responsive,
+            lastCheck: new Date().toISOString(),
+            responseTime: healthCheck.responseTime
+          };
+        }
+
+        const recentLogs = await this.db.all(
+          'SELECT content FROM preview_logs WHERE preview_id = ? ORDER BY timestamp DESC LIMIT 10',
+          [preview.id]
+        );
+
+        results.push({
+          previewId: preview.id,
+          refType: preview.ref_type,
+          refId: preview.ref_id,
+          workingDir: preview.working_dir,
+          status: preview.status,
+          command: preview.command,
+          pid: preview.pid,
+          port: preview.port,
+          urls,
+          startedAt: preview.started_at,
+          stoppedAt: preview.stopped_at,
+          errorMessage: preview.error_message,
+          health,
+          logs: {
+            recent: recentLogs.map(log => log.content).reverse()
+          }
+        });
+      }
+
+      return {
+        executionId,
+        refType: options.refType,
+        refId: options.refId,
+        previews: results
+      };
+    } catch (error) {
+      logger.error(`Error getting preview status for execution ${executionId}:`, error);
+      throw error;
+    }
+  }
+
+  async installDependencies(executionId, options = {}) {
+    try {
+      const execution = await this.db.get(
+        'SELECT * FROM executions WHERE id = ?',
+        [executionId]
+      );
+
+      if (!execution) {
+        throw new Error('Execution not found');
+      }
+
+      // Determine the working directory based on reference info
+      let workingDir = options.workingDir || execution.working_dir;
+      if (options.refType && options.refId) {
+        const baseWorkspace = execution.workspace_path || execution.working_dir;
+        workingDir = path.join(baseWorkspace, options.refType, options.refId);
+        logger.info(`Installing dependencies in reference directory: ${workingDir}`);
+      }
+      
+      const analysis = await this.analyzeProject(executionId, { refType: options.refType, refId: options.refId });
+      
+      let manager = options.manager;
+      if (manager === 'auto') {
+        manager = analysis.dependencies.manager;
+      }
+
+      if (!manager) {
+        throw new Error('No package manager detected');
+      }
+
+      const commands = {
+        npm: options.production ? 'npm ci --production' : 'npm install',
+        yarn: options.production ? 'yarn install --production' : 'yarn install',
+        pnpm: options.production ? 'pnpm install --prod' : 'pnpm install',
+        pip: 'pip install -r requirements.txt',
+        pipenv: 'pipenv install'
+      };
+
+      const command = commands[manager];
+      if (!command) {
+        throw new Error(`Unsupported package manager: ${manager}`);
+      }
+
+      const startTime = Date.now();
+
+      return new Promise((resolve, reject) => {
+        const [cmd, ...args] = command.split(' ');
+        const childProcess = spawn(cmd, args, {
+          cwd: workingDir,
+          shell: true,
+          env: { ...process.env, NODE_ENV: 'development' }
+        });
+
+        let output = '';
+
+        childProcess.stdout.on('data', (data) => {
+          output += data.toString();
+        });
+
+        childProcess.stderr.on('data', (data) => {
+          output += data.toString();
+        });
+
+        childProcess.on('error', (error) => {
+          reject(error);
+        });
+
+        childProcess.on('exit', (code) => {
+          const duration = Date.now() - startTime;
+
+          if (code === 0) {
+            resolve({
+              success: true,
+              manager,
+              command,
+              duration,
+              workingDir,
+              refType: options.refType,
+              refId: options.refId,
+              installedAt: new Date().toISOString()
+            });
+          } else {
+            reject(new Error(`Installation failed with code ${code}: ${output}`));
+          }
+        });
+      });
+    } catch (error) {
+      logger.error(`Error installing dependencies for execution ${executionId}:`, error);
+      throw error;
+    }
+  }
+
+  async handleProcessOutput(previewId, type, content) {
+    try {
+      await this.db.run(
+        'INSERT INTO preview_logs (preview_id, type, content) VALUES (?, ?, ?)',
+        [previewId, type, content]
+      );
+
+      this.broadcastLog(previewId, type, content);
+    } catch (error) {
+      logger.error(`Error handling process output for preview ${previewId}:`, error);
+    }
+  }
+
+  async handleProcessError(previewId, error) {
+    try {
+      await this.db.run(
+        'UPDATE preview_processes SET status = ?, error_message = ? WHERE id = ?',
+        ['failed', error.message, previewId]
+      );
+
+      await this.handleProcessOutput(previewId, 'system', `Process error: ${error.message}`);
+    } catch (dbError) {
+      logger.error(`Error handling process error for preview ${previewId}:`, dbError);
+    }
+  }
+
+  async handleProcessExit(previewId, code, signal) {
+    try {
+      const status = code === 0 ? 'stopped' : 'failed';
+      const message = signal ? `Process killed by signal ${signal}` : `Process exited with code ${code}`;
+
+      await this.db.run(
+        'UPDATE preview_processes SET status = ?, stopped_at = CURRENT_TIMESTAMP, error_message = ? WHERE id = ?',
+        [status, code !== 0 ? message : null, previewId]
+      );
+
+      await this.handleProcessOutput(previewId, 'system', message);
+      await this.portAllocator.releasePortsByPreviewId(previewId);
+
+      this.previewProcesses.delete(previewId);
+    } catch (error) {
+      logger.error(`Error handling process exit for preview ${previewId}:`, error);
+    }
+  }
+
+  addSSEConnection(previewId, res) {
+    if (!this.sseConnections.has(previewId)) {
+      this.sseConnections.set(previewId, new Set());
+    }
+    this.sseConnections.get(previewId).add(res);
+  }
+
+  removeSSEConnection(previewId, res) {
+    const connections = this.sseConnections.get(previewId);
+    if (connections) {
+      connections.delete(res);
+      if (connections.size === 0) {
+        this.sseConnections.delete(previewId);
+      }
+    }
+  }
+
+  broadcastLog(previewId, type, content) {
+    const connections = this.sseConnections.get(previewId);
+    if (connections) {
+      const data = JSON.stringify({
+        timestamp: new Date().toISOString(),
+        type,
+        content
+      });
+
+      connections.forEach(res => {
+        res.write(`event: log\ndata: ${data}\n\n`);
+      });
+    }
+  }
+
+  broadcastStatus(previewId, status, port, url) {
+    const connections = this.sseConnections.get(previewId);
+    if (connections) {
+      const data = JSON.stringify({
+        status,
+        port,
+        url
+      });
+
+      connections.forEach(res => {
+        res.write(`event: status\ndata: ${data}\n\n`);
+      });
+    }
+  }
+
+  getNetworkIP() {
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces)) {
+      for (const iface of interfaces[name]) {
+        if (iface.family === 'IPv4' && !iface.internal) {
+          return iface.address;
+        }
+      }
+    }
+    return 'localhost';
+  }
+
+  injectPortIntoCommand(command, port, framework) {
+    // If command already contains port flag, return as-is
+    if (command.includes('-p ') || command.includes('--port')) {
+      return command;
+    }
+
+    // Special handling for Next.js (including with turbopack)
+    if ((framework === 'nextjs' || command.includes('next dev')) && !command.includes('-p ')) {
+      // Insert port flag after 'next dev' but before any other flags
+      if (command.includes('next dev --turbopack')) {
+        return command.replace('next dev --turbopack', `next dev -p ${port} --turbopack`);
+      } else if (command.includes('next dev')) {
+        return command.replace('next dev', `next dev -p ${port}`);
+      }
+    }
+
+    // For create-react-app, prepend PORT env var
+    if (framework === 'react' && command.includes('react-scripts start')) {
+      return `PORT=${port} ${command}`;
+    }
+
+    // Framework-specific port injection
+    const portFlags = {
+      vue: '--port',
+      angular: '--port',
+      vite: '--port',
+      svelte: '--port',
+      nuxt: '--port'
+    };
+
+    // Generic handling for other frameworks
+    const flag = portFlags[framework];
+    if (flag) {
+      return `${command} ${flag} ${port}`;
+    }
+
+    // Default: rely on PORT env var which we're already setting
+    return command;
+  }
+
+  parsePortFromOutput(output, framework) {
+    // Common patterns for different frameworks
+    const patterns = {
+      nextjs: [
+        /Ready - started server on 0\.0\.0\.0:(\d+)/,
+        /Ready - started server on .*:(\d+)/,
+        /Local:\s+http:\/\/localhost:(\d+)/,
+        /ready - started server on.*:(\d+)/i
+      ],
+      react: [
+        /Local:\s+http:\/\/localhost:(\d+)/,
+        /webpack compiled with \d+ warnings.*http:\/\/localhost:(\d+)/,
+        /compiled successfully!.*http:\/\/localhost:(\d+)/i
+      ],
+      vue: [
+        /Local:\s+http:\/\/localhost:(\d+)/,
+        /App running at:.*http:\/\/localhost:(\d+)/
+      ],
+      vite: [
+        /Local:\s+http:\/\/localhost:(\d+)/,
+        /Local:\s+http:\/\/127\.0\.0\.1:(\d+)/
+      ]
+    };
+
+    // Try framework-specific patterns first
+    const frameworkPatterns = patterns[framework] || [];
+    for (const pattern of frameworkPatterns) {
+      const match = output.match(pattern);
+      if (match) {
+        const port = parseInt(match[1], 10);
+        logger.info(`Detected port ${port} for ${framework} from output`);
+        return port;
+      }
+    }
+
+    // Try generic patterns
+    const genericPatterns = [
+      /localhost:(\d+)/g,
+      /127\.0\.0\.1:(\d+)/g,
+      /0\.0\.0\.0:(\d+)/g,
+      /http:\/\/.*:(\d+)/g
+    ];
+
+    for (const pattern of genericPatterns) {
+      const matches = Array.from(output.matchAll(pattern));
+      if (matches.length > 0) {
+        const port = parseInt(matches[0][1], 10);
+        // Skip common non-server ports
+        if (port >= 3000 && port <= 9000) {
+          logger.info(`Detected port ${port} from generic pattern`);
+          return port;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  async updatePreviewPort(previewId, port) {
+    try {
+      const urls = {
+        local: `http://localhost:${port}`,
+        network: `http://${this.getNetworkIP()}:${port}`,
+        public: null
+      };
+
+      await this.db.run(
+        'UPDATE preview_processes SET port = ?, urls = ? WHERE id = ?',
+        [port, JSON.stringify(urls), previewId]
+      );
+
+      // Update port allocation tracking
+      await this.portAllocator.updatePortAllocation(port, previewId);
+
+      logger.info(`Updated preview ${previewId} with detected port ${port}`);
+
+      // Broadcast port update to SSE connections
+      this.broadcastStatus(previewId, 'port_detected', port, urls.local);
+
+      // Start health checking now that we have the port
+      this.startHealthCheck(previewId, port);
+    } catch (error) {
+      logger.error(`Error updating preview port for ${previewId}:`, error);
+    }
+  }
+
+  async startHealthCheck(previewId, port) {
+    const url = `http://localhost:${port}`;
+    
+    setTimeout(async () => {
+      try {
+        const waitResult = await this.healthChecker.waitForServer(url, {
+          maxAttempts: 30,
+          initialDelay: 2000
+        });
+
+        if (waitResult.success) {
+          await this.db.run(
+            'UPDATE preview_processes SET status = ? WHERE id = ?',
+            ['running', previewId]
+          );
+          this.broadcastStatus(previewId, 'running', port, url);
+        } else {
+          await this.db.run(
+            'UPDATE preview_processes SET status = ?, error_message = ? WHERE id = ?',
+            ['failed', 'Server failed to start', previewId]
+          );
+          this.broadcastStatus(previewId, 'failed', port, null);
+        }
+      } catch (error) {
+        logger.error(`Health check failed for preview ${previewId}:`, error);
+      }
+    }, 3000); // Give the app some time to start before health checking
+  }
+}
+
+module.exports = PreviewManager;
