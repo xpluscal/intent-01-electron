@@ -146,6 +146,16 @@ class ExecutionContextManager {
         const result = await this.refManager.createWorktree(refId, executionId, worktreePath);
         console.log(`[ExecutionContextManager] Worktree created successfully:`, result);
         worktrees[refId] = result;
+        
+        // Store the refId for later auto-preview start (after workspace_path is updated)
+        if (!this.pendingPreviews) {
+          this.pendingPreviews = [];
+        }
+        this.pendingPreviews.push({
+          executionId,
+          refType: 'mutate',
+          refId: refId
+        });
       } catch (error) {
         // Clean up any worktrees we already created
         for (const [createdRefId, worktreeInfo] of Object.entries(worktrees)) {
@@ -180,55 +190,7 @@ class ExecutionContextManager {
       // Create empty directory
       const refDir = path.join(createDir, refId);
       await fs.mkdir(refDir, { recursive: true });
-      
-      // Run create-next-app with all options pre-configured
-      console.log(`[ExecutionContextManager] Running create-next-app for ${refId}...`);
-      
-      const createNextProcess = spawn('npx', [
-        'create-next-app@latest',
-        '.',
-        '--ts',
-        '--tailwind',
-        '--eslint',
-        '--app',
-        '--use-npm',
-        '--import-alias', '@/*',
-        '--src-dir',
-        '--turbopack',
-        '--example', 'https://github.com/resonancelabsai/intent-01-app-starter'
-      ], {
-        cwd: refDir,
-        stdio: 'pipe',
-        shell: true
-      });
-      
-      // Wait for create-next-app to complete
-      await new Promise((resolve, reject) => {
-        let output = '';
-        
-        createNextProcess.stdout.on('data', (data) => {
-          output += data.toString();
-          console.log(`[create-next-app] ${data.toString().trim()}`);
-        });
-        
-        createNextProcess.stderr.on('data', (data) => {
-          output += data.toString();
-          console.log(`[create-next-app stderr] ${data.toString().trim()}`);
-        });
-        
-        createNextProcess.on('close', (code) => {
-          if (code === 0) {
-            console.log(`[ExecutionContextManager] create-next-app completed successfully for ${refId}`);
-            resolve();
-          } else {
-            reject(new Error(`create-next-app failed with code ${code}: ${output}`));
-          }
-        });
-        
-        createNextProcess.on('error', (error) => {
-          reject(new Error(`Failed to run create-next-app: ${error.message}`));
-        });
-      });
+      console.log(`[ExecutionContextManager] Created directory for new reference: ${refDir}`);
       
       // Create a marker file to indicate this is a new reference
       await fs.writeFile(
@@ -237,7 +199,7 @@ class ExecutionContextManager {
           refId,
           createdAt: new Date().toISOString(),
           executionId,
-          type: 'nextjs-app'
+          type: 'create'
         })
       );
       

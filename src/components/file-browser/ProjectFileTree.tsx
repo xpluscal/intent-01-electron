@@ -386,21 +386,48 @@ export function ProjectFileTree({
     }
   }
 
-  // Helper to get the single media file from a media reference
+  // Helper to get the single media file from a directory (for image preview)
   const getSingleMediaFile = (node: ProjectFileNode): string | null => {
-    if (node.nodeType !== 'reference' || node.metadata?.refSubtype !== 'media') {
-      return null
+    // For media references
+    if (node.nodeType === 'reference' && node.metadata?.refSubtype === 'media') {
+      // Filter out .intent-ref.json and find media files
+      const mediaFiles = node.children?.filter(child => 
+        child.type === 'file' && 
+        !child.name.endsWith('.intent-ref.json')
+      ) || []
+      
+      // If exactly one media file, return its path
+      if (mediaFiles.length === 1) {
+        return mediaFiles[0].path
+      }
     }
     
-    // Filter out .intent-ref.json and find media files
-    const mediaFiles = node.children?.filter(child => 
-      child.type === 'file' && 
-      !child.name.endsWith('.intent-ref.json')
-    ) || []
-    
-    // If exactly one media file, return its path
-    if (mediaFiles.length === 1) {
-      return mediaFiles[0].path
+    // For any directory containing only images (filtering out git files)
+    if (node.type === 'directory' && node.children) {
+      const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp', 'ico']
+      
+      // Filter out git-related files and non-image files
+      const imageFiles = node.children.filter(child => {
+        if (child.type !== 'file') return false
+        
+        // Skip git-related files
+        if (child.name === '.gitignore' || child.name.startsWith('.git')) return false
+        if (child.name === '.intent-ref.json') return false
+        
+        // Check if it's an image
+        const ext = child.name.split('.').pop()?.toLowerCase() || ''
+        return imageExtensions.includes(ext)
+      })
+      
+      // Also check that there are no non-git subdirectories
+      const hasSubdirs = node.children.some(child => 
+        child.type === 'directory' && child.name !== '.git'
+      )
+      
+      // If only images (no subdirs) and exactly one image, return it
+      if (!hasSubdirs && imageFiles.length === 1) {
+        return imageFiles[0].path
+      }
     }
     
     return null

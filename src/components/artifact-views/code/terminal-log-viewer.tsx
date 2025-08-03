@@ -116,12 +116,16 @@ function getTypeColor(type: string): string {
 
 export function TerminalLogViewer({ logs, className }: TerminalLogViewerProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
-  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   
   // Auto-scroll to bottom when new logs arrive
   useEffect(() => {
-    if (bottomRef.current) {
-      bottomRef.current.scrollIntoView({ behavior: 'smooth' });
+    // Find the actual scrollable element inside ScrollArea
+    if (scrollContainerRef.current) {
+      const viewport = scrollContainerRef.current.querySelector('[data-slot="scroll-area-viewport"]') as HTMLElement;
+      if (viewport) {
+        viewport.scrollTop = viewport.scrollHeight;
+      }
     }
   }, [logs]);
 
@@ -143,7 +147,7 @@ export function TerminalLogViewer({ logs, className }: TerminalLogViewerProps) {
       </div>
       
       {/* Terminal Body */}
-      <ScrollArea className="flex-1 min-h-0" ref={scrollAreaRef}>
+      <ScrollArea className="flex-1 min-h-0" ref={scrollContainerRef}>
         <div className="p-4 font-mono text-sm">
           {messages.length === 0 ? (
             <div className="text-gray-500">

@@ -120,16 +120,23 @@ Please complete the user's request by reading from the provided references and m
     // Close existing stream
     stopLogStream(executionId)
     
+    console.log(`Starting log stream for execution ${executionId}`)
+    
     // Create new EventSource for SSE
     const eventSource = new EventSource(`${serverUrl}/logs/${executionId}`)
     
-    eventSource.addEventListener('message', (event) => {
+    eventSource.addEventListener('open', () => {
+      console.log(`Log stream connected for execution ${executionId}`)
+    })
+    
+    eventSource.addEventListener('log', (event) => {
       try {
         const log = JSON.parse(event.data)
+        console.log('Received log event:', { executionId, log })
         const executionLog: ExecutionLog = {
-          timestamp: new Date().toISOString(),
+          timestamp: log.timestamp || new Date().toISOString(),
           type: log.type || 'info',
-          content: log
+          content: log.content || log
         }
         setLogs(prev => {
           const newLogs = new Map(prev)
@@ -138,7 +145,18 @@ Please complete the user's request by reading from the provided references and m
           return newLogs
         })
       } catch (error) {
-        console.error('Failed to parse log:', error)
+        console.error('Failed to parse log:', error, event.data)
+      }
+    })
+    
+    eventSource.addEventListener('end', (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        console.log('Execution stream ended', { executionId, code: data.code })
+        // The stream will be closed by the server, just clean up our reference
+        eventSourcesRef.current.delete(executionId)
+      } catch (error) {
+        console.error('Failed to parse end event:', error)
       }
     })
     
@@ -191,7 +209,7 @@ Please complete the user's request by reading from the provided references and m
       } catch (error) {
         console.error('Failed to poll status:', error)
       }
-    }, 1000)
+    }, 5000) // Poll every 5 seconds instead of 1 second
     
     // Store interval ID for cleanup
     // Note: In production, you'd want a more robust cleanup mechanism
@@ -199,6 +217,10 @@ Please complete the user's request by reading from the provided references and m
 
   const getExecutionsByArtifact = async (artifactId: string): Promise<ExecutionStatus[]> => {
     try {
+      // Clear current executions and logs when switching artifacts
+      setExecutions(new Map())
+      setLogs(new Map())
+      
       const response = await fetch(`${serverUrl}/refs/${artifactId}/executions`)
       if (!response.ok) {
         throw new Error('Failed to fetch executions')
@@ -254,6 +276,16 @@ Please complete the user's request by reading from the provided references and m
     }
   }
 
+  // Clear state when changing artifacts
+  const clearExecutions = useCallback(() => {
+    // Close all event sources
+    eventSourcesRef.current.forEach(eventSource => eventSource.close())
+    eventSourcesRef.current.clear()
+    // Clear state
+    setExecutions(new Map())
+    setLogs(new Map())
+  }, [])
+  
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -263,12 +295,50 @@ Please complete the user's request by reading from the provided references and m
     }
   }, [])
 
+  // Fetch historical logs for a specific execution
+  const fetchExecutionLogs = async (executionId: string) => {
+    try {
+      console.log(`Fetching logs for execution ${executionId}`)
+      const response = await fetch(`${serverUrl}/executions/${executionId}/logs`)
+      if (!response.ok) {
+        throw new Error('Failed to fetch execution logs')
+      }
+      
+      const data = await response.json()
+      console.log(`Fetched ${data.logs.length} logs for execution ${executionId}`)
+      const executionLogs: ExecutionLog[] = data.logs.map((log: any) => ({
+        timestamp: log.timestamp,
+        type: log.type || 'info',
+        content: log.content
+      }))
+      
+      setLogs(prev => {
+        const newLogs = new Map(prev)
+        newLogs.set(executionId, executionLogs)
+        return newLogs
+      })
+      
+      // If execution is still active, start streaming new logs
+      const execution = executions.get(executionId)
+      if (execution && (execution.status === 'running' || execution.status === 'pending')) {
+        console.log(`Execution ${executionId} is active, starting log stream`)
+        startLogStream(executionId)
+      }
+    } catch (error) {
+      console.error('Failed to fetch execution logs:', error)
+    }
+  }
+  
   return {
     executions,
     logs,
     loading,
     startExecution,
     sendMessage,
-    getExecutionsByArtifact
+    getExecutionsByArtifact,
+    clearExecutions,
+    fetchExecutionLogs,
+    startLogStream,
+    stopLogStream
   }
 }

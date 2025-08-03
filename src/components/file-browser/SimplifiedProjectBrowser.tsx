@@ -254,6 +254,20 @@ export function SimplifiedProjectBrowser() {
     const refPath = `refs/${refId}`
     
     await window.intentAPI.createDirectory(refPath)
+    
+    // If it's a code artifact, run create-next-app BEFORE creating metadata
+    if (subtype === 'code') {
+      console.log(`Creating Next.js app for artifact ${refId}...`)
+      const result = await window.intentAPI.createNextApp(refPath)
+      if (!result.success) {
+        console.error(`Failed to create Next.js app: ${result.error}`)
+        // Still continue to create the artifact metadata
+      } else {
+        console.log(`Next.js app created successfully for ${refId}`)
+      }
+    }
+    
+    // Now create metadata after create-next-app
     await projectManager.createRefMetadata(
       refId,
       name,
@@ -270,6 +284,12 @@ export function SimplifiedProjectBrowser() {
     // Add to project if provided
     if (selectedProjectIdForArtifact) {
       await projectManager.addRefToProject(selectedProjectIdForArtifact, refId)
+    }
+    
+    // If it's a code artifact, we're done (no default file needed)
+    if (subtype === 'code') {
+      handleRefresh()
+      return
     }
     
     // Create default file based on subtype

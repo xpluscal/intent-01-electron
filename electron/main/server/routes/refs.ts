@@ -834,4 +834,32 @@ router.get('/refs/:refId/diff', async (req, res, next) => {
   }
 });
 
+// Get logs for a specific execution
+router.get('/executions/:executionId/logs', async (req, res, next) => {
+  try {
+    const { executionId } = req.params;
+    const { db } = req.app.locals;
+    
+    // Get logs for this execution
+    const logs = await db.all(`
+      SELECT timestamp, type, content
+      FROM logs
+      WHERE execution_id = ?
+      ORDER BY timestamp ASC
+    `, [executionId]);
+    
+    res.json({
+      executionId,
+      logs: logs.map(log => ({
+        timestamp: log.timestamp,
+        type: log.type,
+        content: typeof log.content === 'string' ? JSON.parse(log.content) : log.content
+      }))
+    });
+  } catch (error) {
+    logger.error('Failed to get logs for execution', { executionId: req.params.executionId, error: error.message });
+    next(error);
+  }
+});
+
 export default router;

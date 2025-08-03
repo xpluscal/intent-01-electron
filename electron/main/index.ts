@@ -469,6 +469,71 @@ node_modules/
   }
 })
 
+// Create Next.js app
+ipcMain.handle('intent:create-next-app', async (event, refPath) => {
+  const userDataPath = app.getPath('userData')
+  const workspacePath = path.join(userDataPath, 'intent-workspace')
+  const fullPath = path.join(workspacePath, refPath)
+  
+  if (!fullPath.startsWith(workspacePath)) {
+    throw new Error('Access denied: Path outside workspace')
+  }
+  
+  try {
+    console.log(`[Main] Running create-next-app in ${fullPath}`)
+    
+    const { spawn } = await import('node:child_process')
+    
+    return new Promise((resolve, reject) => {
+      const createNextProcess = spawn('npx', [
+        'create-next-app@latest',
+        '.',
+        '--ts',
+        '--tailwind',
+        '--eslint',
+        '--app',
+        '--use-npm',
+        '--import-alias', '@/*',
+        '--src-dir',
+        '--turbopack',
+        '--example', 'https://github.com/resonancelabsai/intent-01-app-starter'
+      ], {
+        cwd: fullPath,
+        stdio: 'pipe',
+        shell: true
+      })
+      
+      let output = ''
+      
+      createNextProcess.stdout.on('data', (data) => {
+        output += data.toString()
+        console.log(`[create-next-app] ${data.toString().trim()}`)
+      })
+      
+      createNextProcess.stderr.on('data', (data) => {
+        output += data.toString()
+        console.log(`[create-next-app stderr] ${data.toString().trim()}`)
+      })
+      
+      createNextProcess.on('close', (code) => {
+        if (code === 0) {
+          console.log(`[Main] create-next-app completed successfully`)
+          resolve({ success: true })
+        } else {
+          reject(new Error(`create-next-app failed with code ${code}: ${output}`))
+        }
+      })
+      
+      createNextProcess.on('error', (error) => {
+        reject(new Error(`Failed to run create-next-app: ${error.message}`))
+      })
+    })
+  } catch (error) {
+    console.error('create-next-app error:', error)
+    return { success: false, error: error.message }
+  }
+})
+
 // Install Git if not present (macOS/Windows)
 ipcMain.handle('intent:install-git', async () => {
   const platform = os.platform()

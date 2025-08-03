@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
 import { Button } from '../ui/button'
 import { Badge } from '../ui/badge'
-import { Code2, X, BookOpen, Play, Square, Loader2, ExternalLink, AlertCircle, Maximize2, Minimize2, RefreshCw, Send } from 'lucide-react'
+import { Code2, X, BookOpen, Play, Square, Loader2, ExternalLink, AlertCircle, Maximize2, Minimize2, RefreshCw, Send, RotateCw } from 'lucide-react'
 import { projectManager } from '@/lib/projectManager'
 import { Reference } from '@/types/projects'
 import { usePreview } from '@/hooks/usePreview'
 import { useExecution } from '@/hooks/useExecution'
+import { useExecutionPreview } from '@/hooks/useExecutionPreview'
 import { TerminalLogViewer } from './code/terminal-log-viewer'
 import { cn } from '@/lib/utils'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs'
@@ -27,16 +28,44 @@ export function CodeArtifactView({ refId, refName, onClose }: CodeArtifactViewPr
   const [executionMessages, setExecutionMessages] = useState<Map<string, string>>(new Map())
   
   const { status, logs, loading: previewLoading, startPreview, stopPreview } = usePreview(refId)
-  const { executions, logs: executionLogs, loading: executionLoading, startExecution, sendMessage, getExecutionsByArtifact } = useExecution()
+  const { executions, logs: executionLogs, loading: executionLoading, startExecution, sendMessage, getExecutionsByArtifact, clearExecutions, fetchExecutionLogs, startLogStream, stopLogStream } = useExecution()
 
   const handleRefresh = () => {
     setIframeKey(prev => prev + 1)
   }
 
   useEffect(() => {
+    // Reset tab to current when switching artifacts
+    setActiveTab('current')
+    // Clear execution state before loading new artifact's executions
+    clearExecutions()
     loadReadReferences()
     loadExecutions()
-  }, [refId])
+  }, [refId, clearExecutions])
+
+  // Fetch logs when switching to an execution tab
+  useEffect(() => {
+    if (activeTab.startsWith('execution-')) {
+      const executionId = activeTab.replace('execution-', '')
+      
+      // Always fetch logs when switching to an execution tab
+      fetchExecutionLogs(executionId)
+      
+      // For active executions, also start streaming
+      const execution = executions.get(executionId)
+      if (execution && (execution.status === 'running' || execution.status === 'pending')) {
+        startLogStream(executionId)
+      }
+    }
+    
+    // Cleanup: stop log streams when switching away
+    return () => {
+      if (activeTab.startsWith('execution-')) {
+        const executionId = activeTab.replace('execution-', '')
+        stopLogStream(executionId)
+      }
+    }
+  }, [activeTab, fetchExecutionLogs, startLogStream, stopLogStream, executions]) // Include dependencies
 
   const loadExecutions = async () => {
     // This will load historical executions and update the hook's state
@@ -205,7 +234,7 @@ export function CodeArtifactView({ refId, refName, onClose }: CodeArtifactViewPr
           </div>
 
           {/* Content */}
-          <div className="flex-1 flex flex-col min-h-0">
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
         {/* Fullscreen Preview */}
         {isFullscreen && status.running && status.url && (
           <div className="fixed inset-0 z-50 bg-background flex flex-col">
@@ -257,8 +286,8 @@ export function CodeArtifactView({ refId, refName, onClose }: CodeArtifactViewPr
           </div>
         )}
 
-        {/* Normal Preview */}
-        <div className={cn("flex-1 min-h-0 relative", isFullscreen && "hidden")}>
+        {/* Normal Preview - flex-1 to take remaining space */}
+        <div className={cn("flex-1 relative overflow-hidden", isFullscreen && "hidden")}>
           {status.running && status.url ? (
             <>
               <iframe
@@ -304,7 +333,7 @@ export function CodeArtifactView({ refId, refName, onClose }: CodeArtifactViewPr
         </div>
         
         {/* Terminal Logs */}
-        <div className={cn("h-[30%] min-h-[150px] border-t", isFullscreen && "hidden")}>
+        <div className={cn("h-[25dvh] min-h-[200px] max-h-[300px] border-t flex-shrink-0", isFullscreen && "hidden")}>
           <TerminalLogViewer 
             logs={logs.map(log => `[${log.timestamp}] [${log.type}] ${log.content}`)}
             className="h-full"
@@ -348,123 +377,253 @@ export function CodeArtifactView({ refId, refName, onClose }: CodeArtifactViewPr
           
           return (
             <TabsContent key={execution.id} value={`execution-${execution.id}`} className="flex-1 flex flex-col min-h-0">
-              {/* Execution Status Bar */}
-              <div className="px-4 py-2 border-b bg-muted/30 flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-2 text-sm">
-                    <span className="text-muted-foreground">Status:</span>
-                    <Badge 
-                      variant={
-                        execution.status === 'running' ? "success" : 
-                        execution.status === 'completed' ? "secondary" : 
-                        execution.status === 'failed' ? "destructive" : "outline"
-                      }
-                      className="capitalize"
-                    >
-                      {execution.status}
-                    </Badge>
-                  </div>
-                  
-                  {execution.phase && (
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className="text-muted-foreground">Phase:</span>
-                      <span className="capitalize">{execution.phase}</span>
-                    </div>
-                  )}
-                  
-                  {execution.created && (
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className="text-muted-foreground">Started:</span>
-                      <span>{new Date(execution.created).toLocaleTimeString()}</span>
-                    </div>
-                  )}
-                </div>
-                
-                {execution.preview?.url && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    asChild
-                  >
-                    <a href={execution.preview.url} target="_blank" rel="noopener noreferrer">
-                      Open Preview
-                      <ExternalLink className="h-3 w-3 ml-2" />
-                    </a>
-                  </Button>
-                )}
-              </div>
-              
-              {/* Content */}
-              <div className="flex-1 flex flex-col min-h-0">
-                {/* Preview iframe if available */}
-                <div className="flex-1 min-h-0 relative">
-                  {execution.preview?.url && execution.preview.status === 'running' ? (
-                    <iframe
-                      src={execution.preview.url}
-                      className="w-full h-full border-0"
-                      title={`Execution ${execution.id} Preview`}
-                    />
-                  ) : (
-                    <div className="h-full flex items-center justify-center bg-muted/10">
-                      <div className="text-center">
-                        <Code2 className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                        <h3 className="text-lg font-medium mb-2">No Preview Available</h3>
-                        <p className="text-sm text-muted-foreground">
-                          {execution.status === 'running' ? 'Execution in progress...' : 'Preview will appear when execution starts'}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-                
-                {/* Terminal Logs */}
-                <div className="h-[30%] min-h-[150px] border-t">
-                  <TerminalLogViewer 
-                    logs={execLogs.map(log => `[${log.timestamp}] [${log.type}] ${JSON.stringify(log.content)}`)}
-                    className="h-full"
-                  />
-                </div>
-                
-                {/* Message Input */}
-                <div className="border-t p-4 flex gap-2">
-                  <Textarea
-                    value={execMessage}
-                    onChange={(e) => {
-                      setExecutionMessages(prev => {
-                        const newMap = new Map(prev)
-                        newMap.set(execution.id, e.target.value)
-                        return newMap
-                      })
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault()
-                        handleSendMessage(execution.id)
-                      }
-                    }}
-                    placeholder={
-                      execution.status === 'running' 
-                        ? "Send a message to the execution..."
-                        : "Execution must be running to send messages"
-                    }
-                    disabled={execution.status !== 'running'}
-                    className="flex-1 resize-none"
-                    rows={2}
-                  />
-                  <Button
-                    onClick={() => handleSendMessage(execution.id)}
-                    disabled={!execMessage.trim() || execution.status !== 'running'}
-                    size="icon"
-                    className="h-[72px] w-[72px]"
-                  >
-                    <Send className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
+              <ExecutionTabContent 
+                key={execution.id}
+                execution={execution}
+                execLogs={execLogs}
+                execMessage={execMessage}
+                refId={refId}
+                isActive={activeTab === `execution-${execution.id}`}
+                onMessageChange={(value) => {
+                  setExecutionMessages(prev => {
+                    const newMap = new Map(prev)
+                    newMap.set(execution.id, value)
+                    return newMap
+                  })
+                }}
+                onSendMessage={() => handleSendMessage(execution.id)}
+              />
             </TabsContent>
           )
         })}
       </Tabs>
     </div>
+  )
+}
+
+// Separate component for execution tab content to manage its own preview state
+function ExecutionTabContent({ 
+  execution, 
+  execLogs, 
+  execMessage, 
+  refId,
+  isActive,
+  onMessageChange,
+  onSendMessage
+}: {
+  execution: any
+  execLogs: any[]
+  execMessage: string
+  refId: string
+  isActive: boolean
+  onMessageChange: (value: string) => void
+  onSendMessage: () => void
+}) {
+  const { status: previewStatus, loading: previewLoading, startPreview, stopPreview, restartPreview, checkStatus } = useExecutionPreview(execution.id, refId, isActive)
+  
+  return (
+    <>
+      {/* Execution Status Bar with Preview Controls */}
+      <div className="px-4 py-2 border-b bg-muted/30">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-muted-foreground">Status:</span>
+              <Badge 
+                variant={
+                  execution.status === 'running' ? "success" : 
+                  execution.status === 'completed' ? "secondary" : 
+                  execution.status === 'failed' ? "destructive" : "outline"
+                }
+                className="capitalize"
+              >
+                {execution.status}
+              </Badge>
+            </div>
+            
+            {execution.phase && (
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-muted-foreground">Phase:</span>
+                <span className="capitalize">{execution.phase}</span>
+              </div>
+            )}
+            
+            {execution.created && (
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-muted-foreground">Started:</span>
+                <span>{new Date(execution.created).toLocaleTimeString()}</span>
+              </div>
+            )}
+          </div>
+          
+          <div className="flex items-center gap-2">
+            {previewStatus.url && (
+              <Button
+                variant="ghost"
+                size="sm"
+                asChild
+              >
+                <a href={previewStatus.url} target="_blank" rel="noopener noreferrer">
+                  Open in Browser
+                  <ExternalLink className="h-3 w-3 ml-2" />
+                </a>
+              </Button>
+            )}
+          </div>
+        </div>
+        
+        {/* Preview Controls */}
+        <div className="flex items-center gap-4 mt-2">
+          <Button
+            onClick={() => previewStatus.running ? stopPreview() : startPreview()}
+            disabled={previewLoading || !previewStatus.workspaceAvailable || (execution.status !== 'running' && execution.status !== 'completed')}
+            size="sm"
+            variant={previewStatus.running ? "destructive" : "default"}
+          >
+            {previewLoading ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                {previewStatus.status === 'installing' ? 'Installing...' : 'Starting...'}
+              </>
+            ) : previewStatus.running ? (
+              <>
+                <Square className="h-4 w-4 mr-2" />
+                Stop Preview
+              </>
+            ) : (
+              <>
+                <Play className="h-4 w-4 mr-2" />
+                Start Preview
+              </>
+            )}
+          </Button>
+          
+          {previewStatus.previewId && (
+            <Button
+              onClick={restartPreview}
+              disabled={previewLoading || !previewStatus.workspaceAvailable || (execution.status !== 'running' && execution.status !== 'completed')}
+              size="sm"
+              variant="outline"
+            >
+              <RotateCw className="h-4 w-4 mr-2" />
+              Restart
+            </Button>
+          )}
+          
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-muted-foreground">Preview:</span>
+            <Badge 
+              variant={previewStatus.running ? "success" : previewStatus.status === 'error' ? "destructive" : "secondary"}
+              className="capitalize"
+            >
+              {previewStatus.status}
+            </Badge>
+          </div>
+          
+          {previewStatus.port && (
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-muted-foreground">Port:</span>
+              <span className="font-mono">{previewStatus.port}</span>
+            </div>
+          )}
+          
+          {!previewStatus.workspaceAvailable && (
+            <Badge variant="outline" className="text-xs">
+              Workspace Cleaned Up
+            </Badge>
+          )}
+        </div>
+      </div>
+      
+      {/* Content - Using viewport heights */}
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+        {/* Preview iframe - flex-1 to take remaining space */}
+        <div className="flex-1 relative overflow-hidden">
+          {previewStatus.running && previewStatus.url ? (
+            <iframe
+              src={previewStatus.url}
+              className="w-full h-full border-0"
+              title={`Execution ${execution.id} Preview`}
+            />
+          ) : (
+            <div className="h-full flex items-center justify-center bg-muted/10">
+              <div className="text-center">
+                {previewStatus.status === 'error' ? (
+                  <>
+                    <AlertCircle className="h-12 w-12 mx-auto mb-4 text-destructive" />
+                    <h3 className="text-lg font-medium mb-2">Preview Error</h3>
+                    <p className="text-sm text-muted-foreground max-w-md">
+                      {previewStatus.error || 'Failed to start preview'}
+                    </p>
+                  </>
+                ) : previewStatus.status === 'workspace_unavailable' ? (
+                  <>
+                    <AlertCircle className="h-12 w-12 mx-auto mb-4 text-warning" />
+                    <h3 className="text-lg font-medium mb-2">Workspace Unavailable</h3>
+                    <p className="text-sm text-muted-foreground max-w-md">
+                      The execution workspace has been cleaned up and is no longer available for preview.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <Code2 className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <h3 className="text-lg font-medium mb-2">No Preview Running</h3>
+                    <p className="text-sm text-muted-foreground">
+                      {execution.status === 'running' || execution.status === 'completed'
+                        ? 'Click "Start Preview" to see the execution preview' 
+                        : 'Execution must be running or completed to start preview'}
+                    </p>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+        
+        {/* Terminal Logs */}
+        <div className="h-[25dvh] min-h-[200px] max-h-[300px] border-t flex-shrink-0">
+          <TerminalLogViewer 
+            logs={execLogs.map(log => {
+              // Extract the actual message content
+              const content = typeof log.content === 'string' 
+                ? log.content 
+                : log.content?.message || log.content?.content || JSON.stringify(log.content);
+              return `[${log.timestamp}] [${log.type}] ${content}`;
+            })}
+            className="h-full"
+          />
+        </div>
+        
+        {/* Message Input */}
+        <div className="border-t p-4 flex gap-2">
+          <Textarea
+            value={execMessage}
+            onChange={(e) => onMessageChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                onSendMessage()
+              }
+            }}
+            placeholder={
+              execution.status === 'running' 
+                ? "Send a message to the execution..."
+                : "Execution must be running to send messages"
+            }
+            disabled={execution.status !== 'running'}
+            className="flex-1 resize-none"
+            rows={2}
+          />
+          <Button
+            onClick={onSendMessage}
+            disabled={!execMessage.trim() || execution.status !== 'running'}
+            size="icon"
+            className="h-[72px] w-[72px]"
+          >
+            <Send className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+    </>
   )
 }

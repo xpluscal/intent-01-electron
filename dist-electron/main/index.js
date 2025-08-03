@@ -1510,6 +1510,14 @@ class ExecutionContextManager {
         const result = await this.refManager.createWorktree(refId, executionId, worktreePath);
         console.log(`[ExecutionContextManager] Worktree created successfully:`, result);
         worktrees[refId] = result;
+        if (!this.pendingPreviews) {
+          this.pendingPreviews = [];
+        }
+        this.pendingPreviews.push({
+          executionId,
+          refType: "mutate",
+          refId
+        });
       } catch (error) {
         for (const [createdRefId, worktreeInfo] of Object.entries(worktrees)) {
           try {
@@ -1536,55 +1544,14 @@ class ExecutionContextManager {
       }
       const refDir = path.join(createDir, refId);
       await promises.mkdir(refDir, { recursive: true });
-      console.log(`[ExecutionContextManager] Running create-next-app for ${refId}...`);
-      const createNextProcess = spawn("npx", [
-        "create-next-app@latest",
-        ".",
-        "--ts",
-        "--tailwind",
-        "--eslint",
-        "--app",
-        "--use-npm",
-        "--import-alias",
-        "@/*",
-        "--src-dir",
-        "--turbopack",
-        "--example",
-        "https://github.com/resonancelabsai/intent-01-app-starter"
-      ], {
-        cwd: refDir,
-        stdio: "pipe",
-        shell: true
-      });
-      await new Promise((resolve, reject) => {
-        let output = "";
-        createNextProcess.stdout.on("data", (data) => {
-          output += data.toString();
-          console.log(`[create-next-app] ${data.toString().trim()}`);
-        });
-        createNextProcess.stderr.on("data", (data) => {
-          output += data.toString();
-          console.log(`[create-next-app stderr] ${data.toString().trim()}`);
-        });
-        createNextProcess.on("close", (code) => {
-          if (code === 0) {
-            console.log(`[ExecutionContextManager] create-next-app completed successfully for ${refId}`);
-            resolve();
-          } else {
-            reject(new Error(`create-next-app failed with code ${code}: ${output}`));
-          }
-        });
-        createNextProcess.on("error", (error) => {
-          reject(new Error(`Failed to run create-next-app: ${error.message}`));
-        });
-      });
+      console.log(`[ExecutionContextManager] Created directory for new reference: ${refDir}`);
       await promises.writeFile(
         path.join(refDir, ".new-reference"),
         JSON.stringify({
           refId,
           createdAt: (/* @__PURE__ */ new Date()).toISOString(),
           executionId,
-          type: "nextjs-app"
+          type: "create"
         })
       );
       if (!this.pendingPreviews) {
@@ -6791,6 +6758,29 @@ router$5.get("/refs/:refId/diff", async (req, res, next) => {
     next(error);
   }
 });
+router$5.get("/executions/:executionId/logs", async (req, res, next) => {
+  try {
+    const { executionId } = req.params;
+    const { db } = req.app.locals;
+    const logs = await db.all(`
+      SELECT timestamp, type, content
+      FROM logs
+      WHERE execution_id = ?
+      ORDER BY timestamp ASC
+    `, [executionId]);
+    res.json({
+      executionId,
+      logs: logs.map((log) => ({
+        timestamp: log.timestamp,
+        type: log.type,
+        content: typeof log.content === "string" ? JSON.parse(log.content) : log.content
+      }))
+    });
+  } catch (error) {
+    logger$5.error("Failed to get logs for execution", { executionId: req.params.executionId, error: error.message });
+    next(error);
+  }
+});
 const logger$4 = createLogger("ref-preview-routes");
 const router$4 = express.Router();
 const activePreviews = /* @__PURE__ */ new Map();
@@ -8557,6 +8547,62 @@ node_modules/
     return { success: true };
   } catch (error) {
     console.error("Git init error:", error);
+    return { success: false, error: error.message };
+  }
+});
+ipcMain.handle("intent:create-next-app", async (event, refPath) => {
+  const userDataPath = app.getPath("userData");
+  const workspacePath = path.join(userDataPath, "intent-workspace");
+  const fullPath = path.join(workspacePath, refPath);
+  if (!fullPath.startsWith(workspacePath)) {
+    throw new Error("Access denied: Path outside workspace");
+  }
+  try {
+    console.log(`[Main] Running create-next-app in ${fullPath}`);
+    const { spawn: spawn2 } = await import("node:child_process");
+    return new Promise((resolve, reject) => {
+      const createNextProcess = spawn2("npx", [
+        "create-next-app@latest",
+        ".",
+        "--ts",
+        "--tailwind",
+        "--eslint",
+        "--app",
+        "--use-npm",
+        "--import-alias",
+        "@/*",
+        "--src-dir",
+        "--turbopack",
+        "--example",
+        "https://github.com/resonancelabsai/intent-01-app-starter"
+      ], {
+        cwd: fullPath,
+        stdio: "pipe",
+        shell: true
+      });
+      let output = "";
+      createNextProcess.stdout.on("data", (data) => {
+        output += data.toString();
+        console.log(`[create-next-app] ${data.toString().trim()}`);
+      });
+      createNextProcess.stderr.on("data", (data) => {
+        output += data.toString();
+        console.log(`[create-next-app stderr] ${data.toString().trim()}`);
+      });
+      createNextProcess.on("close", (code) => {
+        if (code === 0) {
+          console.log(`[Main] create-next-app completed successfully`);
+          resolve({ success: true });
+        } else {
+          reject(new Error(`create-next-app failed with code ${code}: ${output}`));
+        }
+      });
+      createNextProcess.on("error", (error) => {
+        reject(new Error(`Failed to run create-next-app: ${error.message}`));
+      });
+    });
+  } catch (error) {
+    console.error("create-next-app error:", error);
     return { success: false, error: error.message };
   }
 });
