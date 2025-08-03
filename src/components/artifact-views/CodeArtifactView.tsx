@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Button } from '../ui/button'
 import { Badge } from '../ui/badge'
-import { Code2, X, BookOpen, Play, Square, Loader2, ExternalLink, AlertCircle, Maximize2, Minimize2, RefreshCw, Send, RotateCw } from 'lucide-react'
+import { Code2, X, BookOpen, Play, Square, Loader2, ExternalLink, AlertCircle, Maximize2, Minimize2, RefreshCw, Send, RotateCw, GitMerge } from 'lucide-react'
 import { projectManager } from '@/lib/projectManager'
 import { Reference } from '@/types/projects'
 import { usePreview } from '@/hooks/usePreview'
@@ -11,6 +11,17 @@ import { TerminalLogViewer } from './code/terminal-log-viewer'
 import { cn } from '@/lib/utils'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs'
 import { Textarea } from '../ui/textarea'
+import { toast } from 'sonner'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../ui/alert-dialog'
 
 interface CodeArtifactViewProps {
   refId: string
@@ -28,7 +39,7 @@ export function CodeArtifactView({ refId, refName, onClose }: CodeArtifactViewPr
   const [executionMessages, setExecutionMessages] = useState<Map<string, string>>(new Map())
   
   const { status, logs, loading: previewLoading, startPreview, stopPreview } = usePreview(refId)
-  const { executions, logs: executionLogs, loading: executionLoading, startExecution, sendMessage, getExecutionsByArtifact, clearExecutions, fetchExecutionLogs, startLogStream, stopLogStream } = useExecution()
+  const { executions, logs: executionLogs, loading: executionLoading, startExecution, sendMessage, getExecutionsByArtifact, clearExecutions, fetchExecutionLogs, startLogStream, stopLogStream, startStatusPolling } = useExecution()
 
   const handleRefresh = () => {
     setIframeKey(prev => prev + 1)
@@ -41,7 +52,7 @@ export function CodeArtifactView({ refId, refName, onClose }: CodeArtifactViewPr
     clearExecutions()
     loadReadReferences()
     loadExecutions()
-  }, [refId, clearExecutions])
+  }, [refId]) // Only depend on refId
 
   // Fetch logs when switching to an execution tab
   useEffect(() => {
@@ -65,7 +76,7 @@ export function CodeArtifactView({ refId, refName, onClose }: CodeArtifactViewPr
         stopLogStream(executionId)
       }
     }
-  }, [activeTab, fetchExecutionLogs, startLogStream, stopLogStream, executions]) // Include dependencies
+  }, [activeTab]) // Only depend on activeTab
 
   const loadExecutions = async () => {
     // This will load historical executions and update the hook's state
@@ -110,6 +121,10 @@ export function CodeArtifactView({ refId, refName, onClose }: CodeArtifactViewPr
         newMap.set(executionId, '')
         return newMap
       })
+      
+      // Resume log streaming and status polling when message is sent
+      startLogStream(executionId)
+      startStatusPolling(executionId)
     }
   }
 
@@ -378,7 +393,6 @@ export function CodeArtifactView({ refId, refName, onClose }: CodeArtifactViewPr
           return (
             <TabsContent key={execution.id} value={`execution-${execution.id}`} className="flex-1 flex flex-col min-h-0">
               <ExecutionTabContent 
-                key={execution.id}
                 execution={execution}
                 execLogs={execLogs}
                 execMessage={execMessage}
@@ -420,6 +434,32 @@ function ExecutionTabContent({
   onSendMessage: () => void
 }) {
   const { status: previewStatus, loading: previewLoading, startPreview, stopPreview, restartPreview, checkStatus } = useExecutionPreview(execution.id, refId, isActive)
+  const [showMergeDialog, setShowMergeDialog] = useState(false)
+  const [merging, setMerging] = useState(false)
+  const [mergeResult, setMergeResult] = useState<{ success: boolean; message?: string; error?: string } | null>(null)
+
+  const handleMerge = async () => {
+    setMerging(true)
+    try {
+      const result = await window.intentAPI.mergeExecutionBranch(refId, execution.id)
+      setMergeResult(result)
+      if (result.success) {
+        // Show success toast
+        toast.success('Changes merged successfully!', {
+          description: `Execution ${execution.id} has been merged into the current branch.`
+        })
+        // Close dialog after successful merge
+        setTimeout(() => {
+          setShowMergeDialog(false)
+          setMergeResult(null)
+        }, 2000)
+      }
+    } catch (error) {
+      setMergeResult({ success: false, error: error.message })
+    } finally {
+      setMerging(false)
+    }
+  }
   
   return (
     <>
@@ -441,7 +481,7 @@ function ExecutionTabContent({
               </Badge>
             </div>
             
-            {execution.phase && (
+            {/* {execution.phase && (
               <div className="flex items-center gap-2 text-sm">
                 <span className="text-muted-foreground">Phase:</span>
                 <span className="capitalize">{execution.phase}</span>
@@ -453,10 +493,21 @@ function ExecutionTabContent({
                 <span className="text-muted-foreground">Started:</span>
                 <span>{new Date(execution.created).toLocaleTimeString()}</span>
               </div>
-            )}
+            )} */}
           </div>
           
           <div className="flex items-center gap-2">
+            {execution.status === 'completed' && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowMergeDialog(true)}
+                disabled={merging}
+              >
+                <GitMerge className="h-3 w-3 mr-2" />
+                Merge into Current
+              </Button>
+            )}
             {previewStatus.url && (
               <Button
                 variant="ghost"
@@ -541,6 +592,7 @@ function ExecutionTabContent({
         <div className="flex-1 relative overflow-hidden">
           {previewStatus.running && previewStatus.url ? (
             <iframe
+              key={`exec-preview-${execution.id}-${previewStatus.previewId || 'default'}`}
               src={previewStatus.url}
               className="w-full h-full border-0"
               title={`Execution ${execution.id} Preview`}
@@ -584,10 +636,10 @@ function ExecutionTabContent({
         <div className="h-[25dvh] min-h-[200px] max-h-[300px] border-t flex-shrink-0">
           <TerminalLogViewer 
             logs={execLogs.map(log => {
-              // Extract the actual message content
+              // Pass logs in the format expected by TerminalLogViewer
               const content = typeof log.content === 'string' 
                 ? log.content 
-                : log.content?.message || log.content?.content || JSON.stringify(log.content);
+                : JSON.stringify(log.content);
               return `[${log.timestamp}] [${log.type}] ${content}`;
             })}
             className="h-full"
@@ -605,18 +657,13 @@ function ExecutionTabContent({
                 onSendMessage()
               }
             }}
-            placeholder={
-              execution.status === 'running' 
-                ? "Send a message to the execution..."
-                : "Execution must be running to send messages"
-            }
-            disabled={execution.status !== 'running'}
+            placeholder="Send a message to the execution..."
             className="flex-1 resize-none"
             rows={2}
           />
           <Button
             onClick={onSendMessage}
-            disabled={!execMessage.trim() || execution.status !== 'running'}
+            disabled={!execMessage.trim()}
             size="icon"
             className="h-[72px] w-[72px]"
           >
@@ -624,6 +671,43 @@ function ExecutionTabContent({
           </Button>
         </div>
       </div>
+
+      {/* Merge Confirmation Dialog */}
+      <AlertDialog open={showMergeDialog} onOpenChange={setShowMergeDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Merge Execution Changes</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will merge the changes from execution branch <code>exec-{execution.id}</code> into the main branch.
+              {mergeResult && (
+                <div className={cn("mt-4 p-3 rounded-md text-sm", 
+                  mergeResult.success ? "bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400" : "bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400"
+                )}>
+                  {mergeResult.success ? '✓ ' : '✗ '}{mergeResult.message || mergeResult.error}
+                </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={merging}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleMerge}
+              disabled={merging || (mergeResult?.success)}
+            >
+              {merging ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Merging...
+                </>
+              ) : mergeResult?.success ? (
+                'Merged!'
+              ) : (
+                'Merge'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }

@@ -49,8 +49,8 @@ export function useExecutionPreview(executionId: string, refId: string, isActive
       if (response.ok) {
         const data = await response.json()
         
-        // Check if workspace is available
-        const workspaceAvailable = data.status === 'running' || (data.workspace_path && data.cleanup_status !== 'completed')
+        // Workspace is available if we got a successful response
+        const workspaceAvailable = true
         
         // Check both possible locations for the preview
         const preview = data.previews?.mutate?.[refId] || 
@@ -72,7 +72,7 @@ export function useExecutionPreview(executionId: string, refId: string, isActive
           setStatus(prev => ({
             ...prev,
             workspaceAvailable,
-            status: workspaceAvailable ? 'stopped' : 'workspace_unavailable'
+            status: 'stopped'
           }))
         }
       } else if (response.status === 404) {
@@ -112,7 +112,8 @@ export function useExecutionPreview(executionId: string, refId: string, isActive
         setStatus({
           running: false,
           status: 'starting',
-          previewId: data.previewId
+          previewId: data.previewId,
+          workspaceAvailable: true
         })
         
         // Start monitoring logs
@@ -136,7 +137,8 @@ export function useExecutionPreview(executionId: string, refId: string, isActive
                 status: preview.status,
                 port: preview.port,
                 url: preview.url || preview.urls?.local,
-                previewId: preview.id || preview.previewId
+                previewId: preview.id || preview.previewId,
+                workspaceAvailable: true
               })
               
               if (preview.status === 'running' || preview.status === 'error') {
@@ -187,7 +189,8 @@ export function useExecutionPreview(executionId: string, refId: string, isActive
       if (response.ok) {
         setStatus({
           running: false,
-          status: 'stopped'
+          status: 'stopped',
+          workspaceAvailable: true
         })
         stopLogStream()
       }
@@ -249,6 +252,13 @@ export function useExecutionPreview(executionId: string, refId: string, isActive
   useEffect(() => {
     return () => {
       stopLogStream()
+      // Reset status to prevent stale state
+      setStatus({
+        running: false,
+        status: 'stopped',
+        workspaceAvailable: true
+      })
+      setLogs([])
     }
   }, [])
 

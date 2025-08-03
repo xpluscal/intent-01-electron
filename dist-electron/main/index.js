@@ -6468,7 +6468,7 @@ router$5.get("/refs/:refId/executions", async (req, res, next) => {
 router$5.post("/refs/:refId/merge", async (req, res, next) => {
   try {
     const { refId } = req.params;
-    const { sourceBranch, targetBranch = "main", strategy = "merge", commitMessage } = req.body;
+    const { sourceBranch, targetBranch = "main", strategy = "merge", commitMessage, executionId } = req.body;
     const manager = getRefManager(req);
     if (!sourceBranch) {
       return res.status(400).json({
@@ -6537,7 +6537,7 @@ router$5.post("/refs/:refId/merge", async (req, res, next) => {
           await req.app.locals.db.run(
             `INSERT INTO ref_changes (execution_id, ref_id, change_type, branch_name, commit_hash, commit_message, merge_status) 
              VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [null, refId, "merge", sourceBranch, mergeCommit, subject, "success"]
+            [executionId || null, refId, "merge", sourceBranch, mergeCommit, subject, "success"]
           );
         } catch (dbError) {
           logger$5.warn("Failed to record merge in database:", dbError);
@@ -8619,6 +8619,36 @@ ipcMain.handle("intent:install-git", async () => {
       return {
         success: false,
         message: "Please install Git using your package manager:\nUbuntu/Debian: sudo apt-get install git\nFedora: sudo dnf install git\nArch: sudo pacman -S git"
+      };
+    }
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+ipcMain.handle("intent:merge-execution-branch", async (event, refId, executionId) => {
+  var _a;
+  try {
+    const response = await fetch(`http://localhost:3456/refs/${refId}/merge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sourceBranch: `exec-${executionId}`,
+        targetBranch: "main",
+        strategy: "merge",
+        commitMessage: `Merge changes from execution ${executionId}`,
+        executionId
+      })
+    });
+    const data = await response.json();
+    if (response.ok && data.success) {
+      return {
+        success: true,
+        message: data.message || "Successfully merged execution changes"
+      };
+    } else {
+      return {
+        success: false,
+        error: ((_a = data.error) == null ? void 0 : _a.message) || "Failed to merge execution branch"
       };
     }
   } catch (error) {

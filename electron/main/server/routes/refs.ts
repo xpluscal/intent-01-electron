@@ -481,7 +481,7 @@ router.get('/refs/:refId/executions', async (req, res, next) => {
 router.post('/refs/:refId/merge', async (req, res, next) => {
   try {
     const { refId } = req.params;
-    const { sourceBranch, targetBranch = 'main', strategy = 'merge', commitMessage } = req.body;
+    const { sourceBranch, targetBranch = 'main', strategy = 'merge', commitMessage, executionId } = req.body;
     const manager = getRefManager(req);
     
     // Validate required parameters
@@ -573,7 +573,7 @@ router.post('/refs/:refId/merge', async (req, res, next) => {
           await req.app.locals.db.run(
             `INSERT INTO ref_changes (execution_id, ref_id, change_type, branch_name, commit_hash, commit_message, merge_status) 
              VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [null, refId, 'merge', sourceBranch, mergeCommit, subject, 'success']
+            [executionId || null, refId, 'merge', sourceBranch, mergeCommit, subject, 'success']
           );
         } catch (dbError) {
           logger.warn('Failed to record merge in database:', dbError);

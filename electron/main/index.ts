@@ -562,3 +562,36 @@ ipcMain.handle('intent:install-git', async () => {
     return { success: false, error: error.message }
   }
 })
+
+// Merge execution branch into main
+ipcMain.handle('intent:merge-execution-branch', async (event, refId, executionId) => {
+  try {
+    const response = await fetch(`http://localhost:3456/refs/${refId}/merge`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sourceBranch: `exec-${executionId}`,
+        targetBranch: 'main',
+        strategy: 'merge',
+        commitMessage: `Merge changes from execution ${executionId}`,
+        executionId: executionId
+      })
+    })
+
+    const data = await response.json()
+    
+    if (response.ok && data.success) {
+      return { 
+        success: true, 
+        message: data.message || 'Successfully merged execution changes'
+      }
+    } else {
+      return { 
+        success: false, 
+        error: data.error?.message || 'Failed to merge execution branch'
+      }
+    }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+})

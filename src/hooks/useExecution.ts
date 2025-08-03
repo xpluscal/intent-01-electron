@@ -116,23 +116,17 @@ Please complete the user's request by reading from the provided references and m
     }
   }
 
-  const startLogStream = (executionId: string) => {
+  const startLogStream = useCallback((executionId: string) => {
     // Close existing stream
     stopLogStream(executionId)
-    
-    console.log(`Starting log stream for execution ${executionId}`)
     
     // Create new EventSource for SSE
     const eventSource = new EventSource(`${serverUrl}/logs/${executionId}`)
     
-    eventSource.addEventListener('open', () => {
-      console.log(`Log stream connected for execution ${executionId}`)
-    })
-    
     eventSource.addEventListener('log', (event) => {
       try {
         const log = JSON.parse(event.data)
-        console.log('Received log event:', { executionId, log })
+        // Log received successfully
         const executionLog: ExecutionLog = {
           timestamp: log.timestamp || new Date().toISOString(),
           type: log.type || 'info',
@@ -152,7 +146,7 @@ Please complete the user's request by reading from the provided references and m
     eventSource.addEventListener('end', (event) => {
       try {
         const data = JSON.parse(event.data)
-        console.log('Execution stream ended', { executionId, code: data.code })
+        // Execution stream ended
         // The stream will be closed by the server, just clean up our reference
         eventSourcesRef.current.delete(executionId)
       } catch (error) {
@@ -168,17 +162,17 @@ Please complete the user's request by reading from the provided references and m
     })
     
     eventSourcesRef.current.set(executionId, eventSource)
-  }
+  }, [])
 
-  const stopLogStream = (executionId: string) => {
+  const stopLogStream = useCallback((executionId: string) => {
     const eventSource = eventSourcesRef.current.get(executionId)
     if (eventSource) {
       eventSource.close()
       eventSourcesRef.current.delete(executionId)
     }
-  }
+  }, [])
 
-  const startStatusPolling = (executionId: string) => {
+  const startStatusPolling = useCallback((executionId: string) => {
     const pollInterval = setInterval(async () => {
       try {
         const response = await fetch(`${serverUrl}/status/${executionId}`)
@@ -213,9 +207,9 @@ Please complete the user's request by reading from the provided references and m
     
     // Store interval ID for cleanup
     // Note: In production, you'd want a more robust cleanup mechanism
-  }
+  }, [])
 
-  const getExecutionsByArtifact = async (artifactId: string): Promise<ExecutionStatus[]> => {
+  const getExecutionsByArtifact = useCallback(async (artifactId: string): Promise<ExecutionStatus[]> => {
     try {
       // Clear current executions and logs when switching artifacts
       setExecutions(new Map())
@@ -262,19 +256,14 @@ Please complete the user's request by reading from the provided references and m
       })
       
       // For active executions, start monitoring
-      historicalExecutions.forEach(exec => {
-        if (exec.status === 'running' || exec.status === 'pending') {
-          startLogStream(exec.id)
-          startStatusPolling(exec.id)
-        }
-      })
+      // We'll handle this in the component's useEffect instead to avoid circular deps
       
       return historicalExecutions
     } catch (error) {
       console.error('Failed to get executions:', error)
       return []
     }
-  }
+  }, [serverUrl])
 
   // Clear state when changing artifacts
   const clearExecutions = useCallback(() => {
@@ -296,16 +285,14 @@ Please complete the user's request by reading from the provided references and m
   }, [])
 
   // Fetch historical logs for a specific execution
-  const fetchExecutionLogs = async (executionId: string) => {
+  const fetchExecutionLogs = useCallback(async (executionId: string) => {
     try {
-      console.log(`Fetching logs for execution ${executionId}`)
       const response = await fetch(`${serverUrl}/executions/${executionId}/logs`)
       if (!response.ok) {
         throw new Error('Failed to fetch execution logs')
       }
       
       const data = await response.json()
-      console.log(`Fetched ${data.logs.length} logs for execution ${executionId}`)
       const executionLogs: ExecutionLog[] = data.logs.map((log: any) => ({
         timestamp: log.timestamp,
         type: log.type || 'info',
@@ -318,16 +305,12 @@ Please complete the user's request by reading from the provided references and m
         return newLogs
       })
       
-      // If execution is still active, start streaming new logs
-      const execution = executions.get(executionId)
-      if (execution && (execution.status === 'running' || execution.status === 'pending')) {
-        console.log(`Execution ${executionId} is active, starting log stream`)
-        startLogStream(executionId)
-      }
+      // Note: Log streaming will be started from the component's useEffect
+      // to avoid circular dependencies
     } catch (error) {
       console.error('Failed to fetch execution logs:', error)
     }
-  }
+  }, [serverUrl])
   
   return {
     executions,
@@ -339,6 +322,7 @@ Please complete the user's request by reading from the provided references and m
     clearExecutions,
     fetchExecutionLogs,
     startLogStream,
-    stopLogStream
+    stopLogStream,
+    startStatusPolling
   }
 }
