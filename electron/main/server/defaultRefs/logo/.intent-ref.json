@@ -1,0 +1,13 @@
+{
+  "version": "1.0",
+  "reference": {
+    "id": "logo",
+    "name": "EcoTrack Logo",
+    "description": "Logo for EcoTrack sustainability analytics platform",
+    "type": "reference",
+    "subtype": "media",
+    "projects": [],
+    "created": "2024-01-01T00:00:00.000Z",
+    "modified": "2024-01-01T00:00:00.000Z"
+  }
+}
