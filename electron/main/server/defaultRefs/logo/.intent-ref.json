@@ -1,0 +1,13 @@
+{
+  "version": "1.0",
+  "reference": {
+    "id": "project-overview",
+    "name": "EcoTrack Project Overview",
+    "description": "Complete project documentation for EcoTrack sustainability analytics platform",
+    "type": "project",
+    "subtype": "document",
+    "projects": [],
+    "created": "2024-01-01T00:00:00.000Z",
+    "modified": "2024-01-01T00:00:00.000Z"
+  }
+}

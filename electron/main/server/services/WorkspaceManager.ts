@@ -50,6 +50,9 @@ export class WorkspaceManager {
     // Clean up any orphaned execution directories
     await this.cleanupOrphanedExecutions();
     
+    // Initialize default references if refs directory is empty
+    await this.initializeDefaultRefs();
+    
     return {
       workspace: this.workspacePath,
       refsDir: path.join(this.workspacePath, 'refs'),
@@ -232,6 +235,59 @@ export class WorkspaceManager {
 
   getExecutionsDir(): string {
     return path.join(this.workspacePath, '.execution');
+  }
+
+  private async initializeDefaultRefs(): Promise<void> {
+    const refsDir = path.join(this.workspacePath, 'refs');
+    
+    try {
+      // Check if refs directory is empty
+      const existingRefs = await fs.readdir(refsDir);
+      if (existingRefs.length > 0) {
+        // Already has references, skip initialization
+        return;
+      }
+
+      // Find the default refs directory
+      const defaultRefsPath = path.join(__dirname, '..', 'defaultRefs');
+      
+      // Check if default refs exist
+      if (!await this.exists(defaultRefsPath)) {
+        console.log('Default refs directory not found, skipping initialization');
+        return;
+      }
+
+      console.log('Initializing workspace with default references...');
+
+      // Copy all default references
+      await this.copyDirectory(defaultRefsPath, refsDir);
+      
+      console.log('Default references initialized successfully');
+    } catch (error) {
+      console.error('Error initializing default refs:', error);
+      // Don't throw - this is optional initialization
+    }
+  }
+
+  private async copyDirectory(src: string, dest: string): Promise<void> {
+    // Create destination directory if it doesn't exist
+    await fs.mkdir(dest, { recursive: true });
+
+    // Read all entries in source directory
+    const entries = await fs.readdir(src, { withFileTypes: true });
+
+    for (const entry of entries) {
+      const srcPath = path.join(src, entry.name);
+      const destPath = path.join(dest, entry.name);
+
+      if (entry.isDirectory()) {
+        // Recursively copy subdirectories
+        await this.copyDirectory(srcPath, destPath);
+      } else {
+        // Copy file
+        await fs.copyFile(srcPath, destPath);
+      }
+    }
   }
 }
 

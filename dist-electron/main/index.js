@@ -721,6 +721,7 @@ class WorkspaceManager {
       }
     }
     await this.cleanupOrphanedExecutions();
+    await this.initializeDefaultRefs();
     return {
       workspace: this.workspacePath,
       refsDir: path.join(this.workspacePath, "refs"),
@@ -861,6 +862,38 @@ class WorkspaceManager {
   }
   getExecutionsDir() {
     return path.join(this.workspacePath, ".execution");
+  }
+  async initializeDefaultRefs() {
+    const refsDir = path.join(this.workspacePath, "refs");
+    try {
+      const existingRefs = await promises.readdir(refsDir);
+      if (existingRefs.length > 0) {
+        return;
+      }
+      const defaultRefsPath = path.join(__dirname, "..", "defaultRefs");
+      if (!await this.exists(defaultRefsPath)) {
+        console.log("Default refs directory not found, skipping initialization");
+        return;
+      }
+      console.log("Initializing workspace with default references...");
+      await this.copyDirectory(defaultRefsPath, refsDir);
+      console.log("Default references initialized successfully");
+    } catch (error) {
+      console.error("Error initializing default refs:", error);
+    }
+  }
+  async copyDirectory(src, dest) {
+    await promises.mkdir(dest, { recursive: true });
+    const entries = await promises.readdir(src, { withFileTypes: true });
+    for (const entry of entries) {
+      const srcPath = path.join(src, entry.name);
+      const destPath = path.join(dest, entry.name);
+      if (entry.isDirectory()) {
+        await this.copyDirectory(srcPath, destPath);
+      } else {
+        await promises.copyFile(srcPath, destPath);
+      }
+    }
   }
 }
 const logger$k = createLogger("ProcessManager");
@@ -8612,8 +8645,8 @@ class IntentServer {
   }
 }
 createRequire(import.meta.url);
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-process.env.APP_ROOT = path.join(__dirname, "../..");
+const __dirname$1 = path.dirname(fileURLToPath(import.meta.url));
+process.env.APP_ROOT = path.join(__dirname$1, "../..");
 const MAIN_DIST = path.join(process.env.APP_ROOT, "dist-electron");
 const RENDERER_DIST = path.join(process.env.APP_ROOT, "dist");
 const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL;
@@ -8625,7 +8658,7 @@ if (!app.requestSingleInstanceLock()) {
   process.exit(0);
 }
 let win = null;
-const preload = path.join(__dirname, "../preload/index.mjs");
+const preload = path.join(__dirname$1, "../preload/index.mjs");
 const indexHtml = path.join(RENDERER_DIST, "index.html");
 let intentServer = null;
 async function createWindow() {

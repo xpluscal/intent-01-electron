@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
-  "appId": "YourAppID",
+  "appId": "com.resonancelabsai.intent",
   "asar": true,
   "directories": {
     "output": "release/${version}"
@@ -14,7 +14,8 @@
     "target": [
       "dmg",
       "zip"
-    ]
+    ],
+    "icon": "./public/icon.png"
   },
   "win": {
     "target": [

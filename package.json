@@ -6,9 +6,9 @@
   "type": "module",
   "scripts": {
     "dev": "npm-run-all --parallel dev:frontend dev:backend",
-    "dev:frontend": "vite --open",
+    "dev:frontend": "vite",
     "dev:backend": "convex dev",
-    "predev": "convex dev --until-success && convex dashboard",
+    "predev": "convex dev --until-success",
     "build": "tsc -b && vite build && node scripts/copy-server.js",
     "postdev": "node scripts/copy-server.js",
     "lint": "tsc && eslint .  --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
