@@ -307,9 +307,9 @@ export function SimplifiedProjectBrowser() {
     <>
       <ResizablePanelGroup direction="horizontal" className="h-full">
         <ResizablePanel defaultSize={15} minSize={15} maxSize={50}>
-          <div className="h-full flex flex-col">
+          <div className="h-full flex flex-col overflow-hidden">
             {/* Header with add button */}
-            <div className="border-b p-2 flex items-center justify-between">
+            <div className="border-b p-2 flex items-center justify-between flex-shrink-0">
               <h2 className="text-sm font-medium">Projects</h2>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -339,7 +339,7 @@ export function SimplifiedProjectBrowser() {
               }}
               onRefresh={handleRefresh}
             >
-              <ScrollArea className="flex-1">
+              <ScrollArea className="flex-1 overflow-y-auto">
                 <ProjectFileTree
                   key={refreshKey}
                   projects={projects}
