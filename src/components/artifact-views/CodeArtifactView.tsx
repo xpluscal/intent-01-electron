@@ -99,7 +99,14 @@ export function CodeArtifactView({ refId, refName, onClose }: CodeArtifactViewPr
     
     const result = await startExecution({
       artifactId: refId,
-      readReferences: readReferences.map(r => r.id),
+      artifactName: refName,
+      artifactType: 'code', // This is a CodeArtifactView, so it's a code artifact
+      readReferences: readReferences.map(r => ({
+        id: r.id,
+        name: r.name,
+        subtype: r.subtype,
+        description: r.description
+      })),
       message: message.trim()
     })
     

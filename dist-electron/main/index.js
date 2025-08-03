@@ -5392,6 +5392,57 @@ router$b.post("/execute", async (req, res, next) => {
           "UPDATE executions SET workspace_path = ?, working_dir = ? WHERE id = ?",
           [executionWorkspace.executionPath, actualWorkingDir, executionId]
         );
+        const claudeMdContent = `# Execution Context
+
+## Execution ID: ${executionId}
+Created: ${(/* @__PURE__ */ new Date()).toISOString()}
+
+## Your Task
+${prompt}
+
+## Important Instructions
+1. **ALWAYS read the references FIRST** before making any changes
+2. **Show fast, incremental results**: Update components one by one so progress is visible
+3. **Make small commits** rather than one large change at the end
+4. **Keep the preview running** so the user can see your progress
+
+## Available References
+
+### Mutate (You will modify these)
+${refs.mutate && refs.mutate.length > 0 ? refs.mutate.map(
+          (refId) => `- **${refId}** - Located at: mutate/${refId}/`
+        ).join("\n") : "No mutate references provided."}
+
+### Read (Read these for context - DO NOT MODIFY)
+${refs.read && refs.read.length > 0 ? refs.read.map(
+          (refId) => `- **${refId}** - Located at: read/${refId}/`
+        ).join("\n") : "No read references provided."}
+
+### Create (Empty directories for new content)
+${refs.create && refs.create.length > 0 ? refs.create.map(
+          (dir) => `- **${dir}** - Located at: create/${dir}/`
+        ).join("\n") : "No create directories provided."}
+
+## Workspace Structure
+- **read/** - Contains read-only reference files. Read these first for context.
+- **mutate/** - Contains files you should modify to complete the task.
+- **create/** - Empty directories where you can create new content.
+
+## Git Information
+- Each mutate reference has its own git worktree
+- You can make commits in the mutate directories
+- Your changes are isolated to this execution
+
+## Remember
+1. Start by reading ALL files in the read/ directory to understand the context
+2. Focus on incremental, visible progress
+3. The user wants to see results quickly - update the main components first
+4. Make the preview functional as early as possible
+`;
+        await promises.writeFile(
+          path.join(executionWorkspace.executionPath, "CLAUDE.md"),
+          claudeMdContent
+        );
         await contextManager.startPendingPreviews();
         logger$9.info("Execution workspace created", {
           executionId,

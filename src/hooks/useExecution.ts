@@ -27,7 +27,14 @@ interface ExecutionLog {
 
 interface StartExecutionParams {
   artifactId: string
-  readReferences: string[]
+  artifactName: string
+  artifactType?: string
+  readReferences: Array<{
+    id: string
+    name: string
+    subtype?: string
+    description?: string
+  }>
   message: string
 }
 
@@ -38,17 +45,39 @@ export function useExecution() {
   const eventSourcesRef = useRef<Map<string, EventSource>>(new Map())
   const serverUrl = window.intentAPI.serverUrl // http://localhost:3456
 
-  const startExecution = async ({ artifactId, readReferences, message }: StartExecutionParams) => {
+  const startExecution = async ({ artifactId, artifactName, artifactType, readReferences, message }: StartExecutionParams) => {
     setLoading(true)
     try {
       // Build execution plan with instructions
+      const readRefsSection = readReferences.length > 0 
+        ? `You can read from these references:
+${readReferences.map(ref => {
+  let entry = `- "${ref.name}"${ref.subtype ? ` (${ref.subtype})` : ''} at: read/${ref.id}`
+  if (ref.description) {
+    entry += `\n  Description: ${ref.description}`
+  }
+  return entry
+}).join('\n')}`
+        : 'No read references provided.';
+
       const executionPlan = `${message}
 
-You have access to:
-- Mutate item at: mutate/${artifactId}
-${readReferences.map(ref => `- Read item at: read/${ref}`).join('\n')}
+You have access to modify:
+- "${artifactName}"${artifactType ? ` (${artifactType})` : ''} at: mutate/${artifactId}
 
-Please complete the user's request by reading from the provided references and making changes to the mutate item.`
+${readRefsSection}
+
+IMPORTANT INSTRUCTIONS:
+1. First, read ALL the provided references to understand the full context before making changes.
+2. Focus on showing fast, incremental results. As you develop:
+   - Update the main page/component immediately as you create new features
+   - Add components one by one so the user can see progress in real-time
+   - Make small, working commits rather than one large change at the end
+   - If building a UI, ensure it's viewable/testable as early as possible
+3. The user should be able to preview your progress throughout the development process.
+4. Make very stylish greaat clean design aesthieticque outputs and really smooth minimal motion experience to get an amazing result
+
+Please read the content from the provided references and use that information to complete the user's request by making changes to the artifact "${artifactName}".`
 
       const response = await fetch(`${serverUrl}/execute`, {
         method: 'POST',
@@ -58,7 +87,7 @@ Please complete the user's request by reading from the provided references and m
           prompt: executionPlan,
           refs: {
             mutate: [artifactId],
-            read: readReferences
+            read: readReferences.map(ref => ref.id)
           }
         })
       })
