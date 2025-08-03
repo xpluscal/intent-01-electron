@@ -3515,6 +3515,12 @@ class PortAllocator {
       [previewId, port]
     );
   }
+  async allocatePortForPreview(port, previewId) {
+    await this.db.run(
+      "INSERT OR REPLACE INTO port_allocations (port, preview_id) VALUES (?, ?)",
+      [port, previewId]
+    );
+  }
   async getAllocatedPorts() {
     const rows = await this.db.all(
       "SELECT port, preview_id, allocated_at FROM port_allocations ORDER BY port"
@@ -3986,6 +3992,7 @@ class PreviewManager {
     this.healthChecker = new HealthChecker();
     this.previewProcesses = /* @__PURE__ */ new Map();
     this.sseConnections = /* @__PURE__ */ new Map();
+    this.cleanupStalePortAllocations();
     this.healthCheckInterval = 12e4;
     this.maxRestartAttempts = 1;
     this.restartDelay = 5e3;
@@ -4021,6 +4028,38 @@ class PreviewManager {
     this.executionErrors = /* @__PURE__ */ new Map();
     this.errorBufferDelay = 2e3;
     this.startHealthMonitoring();
+  }
+  async cleanupStalePortAllocations() {
+    try {
+      const cleaned = await this.portAllocator.cleanupStaleAllocations();
+      if (cleaned > 0) {
+        logger$a.info(`Cleaned up ${cleaned} stale port allocations on startup`);
+      }
+    } catch (error) {
+      logger$a.error("Failed to cleanup stale port allocations:", error);
+    }
+  }
+  async stopAllPreviews() {
+    logger$a.info("Stopping all preview processes...");
+    try {
+      const runningPreviews = await this.db.all(
+        "SELECT * FROM preview_processes WHERE status IN (?, ?, ?)",
+        ["installing", "starting", "running"]
+      );
+      logger$a.info(`Found ${runningPreviews.length} running previews to stop`);
+      for (const preview of runningPreviews) {
+        try {
+          await this.stopPreview(preview.execution_id, preview.id);
+          logger$a.info(`Stopped preview ${preview.id}`);
+        } catch (error) {
+          logger$a.error(`Failed to stop preview ${preview.id}:`, error);
+        }
+      }
+      await this.portAllocator.cleanupStaleAllocations();
+      logger$a.info("All previews stopped");
+    } catch (error) {
+      logger$a.error("Error stopping all previews:", error);
+    }
   }
   async analyzeProject(executionId, options = {}) {
     try {
@@ -4285,7 +4324,8 @@ class PreviewManager {
         NODE_ENV: "development",
         ...options.env
       };
-      delete env.PORT;
+      env.PORT = "0";
+      logger$a.info(`Starting preview ${previewId} with PORT=0 for auto-selection`);
       const [cmd, ...args] = command.split(" ");
       const childProcess = spawn(cmd, args, {
         cwd: workingDir,
@@ -4302,28 +4342,30 @@ class PreviewManager {
         "UPDATE preview_processes SET pid = ? WHERE id = ?",
         [childProcess.pid, previewId]
       );
-      let assignedPort = null;
-      childProcess.stdout.on("data", (data) => {
+      let detectedPort = null;
+      childProcess.stdout.on("data", async (data) => {
         const output = data.toString();
         this.handleProcessOutput(previewId, "stdout", output);
         this.checkForErrors(previewId, output, executionId);
-        if (!assignedPort) {
-          assignedPort = this.parsePortFromOutput(output, analysis.framework);
-          if (assignedPort) {
-            logger$a.info(`Detected port ${assignedPort} for preview ${previewId}`);
-            this.updatePreviewPort(previewId, assignedPort);
+        if (!detectedPort) {
+          const parsedPort = this.parsePortFromOutput(output, analysis.framework);
+          if (parsedPort) {
+            detectedPort = parsedPort;
+            logger$a.info(`Detected port ${detectedPort} for preview ${previewId}`);
+            await this.updatePreviewPort(previewId, detectedPort);
           }
         }
       });
-      childProcess.stderr.on("data", (data) => {
+      childProcess.stderr.on("data", async (data) => {
         const output = data.toString();
         this.handleProcessOutput(previewId, "stderr", output);
         this.checkForErrors(previewId, output, executionId);
-        if (!assignedPort) {
-          assignedPort = this.parsePortFromOutput(output, analysis.framework);
-          if (assignedPort) {
-            logger$a.info(`Detected port ${assignedPort} for preview ${previewId} (from stderr)`);
-            this.updatePreviewPort(previewId, assignedPort);
+        if (!detectedPort) {
+          const parsedPort = this.parsePortFromOutput(output, analysis.framework);
+          if (parsedPort) {
+            detectedPort = parsedPort;
+            logger$a.info(`Detected port ${detectedPort} for preview ${previewId} (from stderr)`);
+            await this.updatePreviewPort(previewId, detectedPort);
           }
         }
       });
@@ -4717,7 +4759,7 @@ data: ${data}
         "UPDATE preview_processes SET port = ?, urls = ? WHERE id = ?",
         [port, JSON.stringify(urls), previewId]
       );
-      await this.portAllocator.updatePortAllocation(port, previewId);
+      await this.portAllocator.allocatePortForPreview(port, previewId);
       logger$a.info(`Updated preview ${previewId} with detected port ${port}`);
       this.broadcastStatus(previewId, "port_detected", port, urls.local);
       this.startHealthCheck(previewId, port);
@@ -4814,19 +4856,10 @@ data: ${data}
     logger$a.info(`Attempting to restart preview ${previewData.id}`);
     try {
       await this.forceStopPreview(previewData.id);
-      const urls = previewData.urls ? JSON.parse(previewData.urls) : {};
-      const port = previewData.port;
-      if (!port) {
-        throw new Error("No port found for preview");
-      }
-      const isAvailable = await this.portAllocator.isPortAvailable(port);
-      if (!isAvailable) {
-        logger$a.warn(`Port ${port} is no longer available for preview ${previewData.id}`);
-        const newPort = await this.portAllocator.allocatePort();
-        logger$a.info(`Allocated new port ${newPort} for preview ${previewData.id}`);
-        await this.portAllocator.updatePortAllocation(newPort, previewData.id);
-        previewData.port = newPort;
-      }
+      await this.db.run(
+        "UPDATE preview_processes SET port = NULL, urls = ? WHERE id = ?",
+        [JSON.stringify({}), previewData.id]
+      );
       await this.db.run(
         "UPDATE preview_processes SET status = ? WHERE id = ?",
         ["starting", previewData.id]
@@ -8192,6 +8225,14 @@ class IntentServer {
     }
     const logger2 = createLogger("serverIntegration");
     logger2.info("Shutting down Intent server...");
+    if (this.server && this.server.locals && this.server.locals.previewManager) {
+      try {
+        await this.server.locals.previewManager.stopAllPreviews();
+        logger2.info("All previews stopped");
+      } catch (error) {
+        logger2.error("Error stopping previews:", error);
+      }
+    }
     if (this.server) {
       await new Promise((resolve) => {
         this.server.close(() => {

@@ -129,6 +129,14 @@ class PortAllocator {
     );
   }
 
+  async allocatePortForPreview(port, previewId) {
+    // Upsert: Insert or update port allocation
+    await this.db.run(
+      'INSERT OR REPLACE INTO port_allocations (port, preview_id) VALUES (?, ?)',
+      [port, previewId]
+    );
+  }
+
   async getAllocatedPorts() {
     const rows = await this.db.all(
       'SELECT port, preview_id, allocated_at FROM port_allocations ORDER BY port'

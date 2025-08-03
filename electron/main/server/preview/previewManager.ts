@@ -21,6 +21,9 @@ class PreviewManager {
     this.previewProcesses = new Map();
     this.sseConnections = new Map();
     
+    // Clean up stale port allocations on startup
+    this.cleanupStalePortAllocations();
+    
     // Auto-restart configuration
     this.healthCheckInterval = 120000; // 2 minutes - less aggressive
     this.maxRestartAttempts = 1; // Only one restart attempt before asking Claude
@@ -67,6 +70,48 @@ class PreviewManager {
     
     // Start health monitoring
     this.startHealthMonitoring();
+  }
+
+  async cleanupStalePortAllocations() {
+    try {
+      const cleaned = await this.portAllocator.cleanupStaleAllocations();
+      if (cleaned > 0) {
+        logger.info(`Cleaned up ${cleaned} stale port allocations on startup`);
+      }
+    } catch (error) {
+      logger.error('Failed to cleanup stale port allocations:', error);
+    }
+  }
+
+  async stopAllPreviews() {
+    logger.info('Stopping all preview processes...');
+    
+    try {
+      // Get all running previews
+      const runningPreviews = await this.db.all(
+        'SELECT * FROM preview_processes WHERE status IN (?, ?, ?)',
+        ['installing', 'starting', 'running']
+      );
+      
+      logger.info(`Found ${runningPreviews.length} running previews to stop`);
+      
+      // Stop each preview
+      for (const preview of runningPreviews) {
+        try {
+          await this.stopPreview(preview.execution_id, preview.id);
+          logger.info(`Stopped preview ${preview.id}`);
+        } catch (error) {
+          logger.error(`Failed to stop preview ${preview.id}:`, error);
+        }
+      }
+      
+      // Clean up any remaining port allocations
+      await this.portAllocator.cleanupStaleAllocations();
+      
+      logger.info('All previews stopped');
+    } catch (error) {
+      logger.error('Error stopping all previews:', error);
+    }
   }
 
   async analyzeProject(executionId, options = {}) {
@@ -385,15 +430,18 @@ class PreviewManager {
 
       logger.info(`Starting app with command: ${command} in directory: ${workingDir}`);
       
-      // Create clean environment without PORT to avoid conflicts
+      // Create clean environment, let the dev server pick its own port
       const env = {
         ...process.env,
         NODE_ENV: 'development',
         ...options.env
       };
       
-      // Remove PORT from environment to let the preview app auto-detect
-      delete env.PORT;
+      // Set PORT=0 to hint that we want any available port
+      // Some servers respect this, others will use their default port selection
+      env.PORT = '0';
+      
+      logger.info(`Starting preview ${previewId} with PORT=0 for auto-selection`);
 
       const [cmd, ...args] = command.split(' ');
       const childProcess = spawn(cmd, args, {
@@ -417,32 +465,36 @@ class PreviewManager {
         [childProcess.pid, previewId]
       );
 
-      let assignedPort = null;
+      let detectedPort = null;
 
-      childProcess.stdout.on('data', (data) => {
+      childProcess.stdout.on('data', async (data) => {
         const output = data.toString();
         this.handleProcessOutput(previewId, 'stdout', output);
         this.checkForErrors(previewId, output, executionId);
         
-        if (!assignedPort) {
-          assignedPort = this.parsePortFromOutput(output, analysis.framework);
-          if (assignedPort) {
-            logger.info(`Detected port ${assignedPort} for preview ${previewId}`);
-            this.updatePreviewPort(previewId, assignedPort);
+        // Detect the port from server output
+        if (!detectedPort) {
+          const parsedPort = this.parsePortFromOutput(output, analysis.framework);
+          if (parsedPort) {
+            detectedPort = parsedPort;
+            logger.info(`Detected port ${detectedPort} for preview ${previewId}`);
+            await this.updatePreviewPort(previewId, detectedPort);
           }
         }
       });
 
-      childProcess.stderr.on('data', (data) => {
+      childProcess.stderr.on('data', async (data) => {
         const output = data.toString();
         this.handleProcessOutput(previewId, 'stderr', output);
         this.checkForErrors(previewId, output, executionId);
         
-        if (!assignedPort) {
-          assignedPort = this.parsePortFromOutput(output, analysis.framework);
-          if (assignedPort) {
-            logger.info(`Detected port ${assignedPort} for preview ${previewId} (from stderr)`);
-            this.updatePreviewPort(previewId, assignedPort);
+        // Also check stderr for port information
+        if (!detectedPort) {
+          const parsedPort = this.parsePortFromOutput(output, analysis.framework);
+          if (parsedPort) {
+            detectedPort = parsedPort;
+            logger.info(`Detected port ${detectedPort} for preview ${previewId} (from stderr)`);
+            await this.updatePreviewPort(previewId, detectedPort);
           }
         }
       });
@@ -902,8 +954,8 @@ class PreviewManager {
         [port, JSON.stringify(urls), previewId]
       );
 
-      // Update port allocation tracking
-      await this.portAllocator.updatePortAllocation(port, previewId);
+      // Allocate port for this preview (upsert to handle both new and existing allocations)
+      await this.portAllocator.allocatePortForPreview(port, previewId);
 
       logger.info(`Updated preview ${previewId} with detected port ${port}`);
 
@@ -1036,26 +1088,12 @@ class PreviewManager {
     try {
       // First, forcefully stop any existing process for this preview
       await this.forceStopPreview(previewData.id);
-      // Parse URLs to get the port
-      const urls = previewData.urls ? JSON.parse(previewData.urls) : {};
-      const port = previewData.port;
       
-      if (!port) {
-        throw new Error('No port found for preview');
-      }
-      
-      // Check if port is still available
-      const isAvailable = await this.portAllocator.isPortAvailable(port);
-      if (!isAvailable) {
-        logger.warn(`Port ${port} is no longer available for preview ${previewData.id}`);
-        // Allocate a new port
-        const newPort = await this.portAllocator.allocatePort(); // No arguments - let it find an available port
-        logger.info(`Allocated new port ${newPort} for preview ${previewData.id}`);
-        
-        // Associate the new port with this preview
-        await this.portAllocator.updatePortAllocation(newPort, previewData.id);
-        previewData.port = newPort;
-      }
+      // Clear the port in the database - let the server auto-select a new one
+      await this.db.run(
+        'UPDATE preview_processes SET port = NULL, urls = ? WHERE id = ?',
+        [JSON.stringify({}), previewData.id]
+      );
       
       // Update status to restarting
       await this.db.run(
