@@ -315,8 +315,24 @@ class ClaudeSDKManager {
       session.abortController.abort();
     }
 
-    // Clean up
+    // Clean up immediately
     this.activeSessions.delete(executionId);
+    this.pendingMessages.delete(executionId);
+    
+    // Update status to completed
+    await this.updateExecutionStatus(executionId, ExecutionStatus.COMPLETED);
+    
+    // Force emit process exit event to ensure git integration runs
+    this.eventEmitter.emit(Events.PROCESS_EXIT, { 
+      executionId, 
+      code: 0,
+      signal: 'SIGTERM'
+    });
+    
+    // Also emit buffer flush to ensure logs are saved
+    this.eventEmitter.emit(Events.BUFFER_FLUSH, { executionId });
+    
+    logger.info('Execution stopped and cleanup completed', { executionId });
     
     return true;
   }

@@ -22,6 +22,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '../ui/alert-dialog'
+import { VercelDeployGuideDialog } from '../dialogs/VercelDeployGuideDialog'
 
 interface CodeArtifactViewProps {
   refId: string
@@ -37,6 +38,7 @@ export function CodeArtifactView({ refId, refName, onClose }: CodeArtifactViewPr
   const [activeTab, setActiveTab] = useState('current')
   const [message, setMessage] = useState('')
   const [executionMessages, setExecutionMessages] = useState<Map<string, string>>(new Map())
+  const [showDeployGuideDialog, setShowDeployGuideDialog] = useState(false)
   
   const { status, logs, loading: previewLoading, startPreview, stopPreview } = usePreview(refId)
   const { executions, logs: executionLogs, loading: executionLoading, startExecution, sendMessage, getExecutionsByArtifact, clearExecutions, fetchExecutionLogs, startLogStream, stopLogStream, startStatusPolling } = useExecution()
@@ -241,18 +243,38 @@ export function CodeArtifactView({ refId, refName, onClose }: CodeArtifactViewPr
               )}
             </div>
             
-            {status.url && (
-              <Button
-                variant="ghost"
-                size="sm"
-                asChild
-              >
-                <a href={status.url} target="_blank" rel="noopener noreferrer">
-                  Open in Browser
-                  <ExternalLink className="h-3 w-3 ml-2" />
-                </a>
-              </Button>
-            )}
+            <div className="flex items-center gap-2">
+              {status.url && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  asChild
+                >
+                  <a href={status.url} target="_blank" rel="noopener noreferrer">
+                    Open in Browser
+                    <ExternalLink className="h-3 w-3 ml-2" />
+                  </a>
+                </Button>
+              )}
+              
+              {/* Only show deploy button on current tab */}
+              {activeTab === 'current' && (
+                <Button
+                  onClick={() => {
+                    console.log('Deploy button clicked!'); // Debug log
+                    setShowDeployGuideDialog(true);
+                  }}
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                >
+                  <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M24 22.525H0L12 1.475l12 21.05z"/>
+                  </svg>
+                  Deploy to Vercel
+                </Button>
+              )}
+            </div>
           </div>
 
           {/* Content */}
@@ -418,6 +440,16 @@ export function CodeArtifactView({ refId, refName, onClose }: CodeArtifactViewPr
           )
         })}
       </Tabs>
+      
+      {/* Vercel Deploy Guide Dialog - only on current tab */}
+      {activeTab === 'current' && (
+        <VercelDeployGuideDialog
+          open={showDeployGuideDialog}
+          onOpenChange={setShowDeployGuideDialog}
+          refId={refId}
+          refName={refName}
+        />
+      )}
     </div>
   )
 }
@@ -513,6 +545,36 @@ function ExecutionTabContent({
           </div>
           
           <div className="flex items-center gap-2">
+            {execution.status === 'running' && (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={async () => {
+                  try {
+                    const response = await fetch(`http://localhost:3456/stop/${execution.id}`, {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                      },
+                    })
+                    if (!response.ok) {
+                      throw new Error('Failed to stop execution')
+                    }
+                    const result = await response.json()
+                    toast.success('Execution stopped', {
+                      description: `Execution ${execution.id} has been cancelled.`
+                    })
+                  } catch (error) {
+                    toast.error('Failed to stop execution', {
+                      description: error.message
+                    })
+                  }
+                }}
+              >
+                <Square className="h-3 w-3 mr-2" />
+                Stop Execution
+              </Button>
+            )}
             {execution.status === 'completed' && (
               <Button
                 variant="outline"

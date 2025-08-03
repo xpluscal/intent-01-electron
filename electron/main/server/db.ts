@@ -224,6 +224,100 @@ export class Database {
       )
     `;
 
+    // Vercel integration tables
+    const vercelAuthSchema = `
+      CREATE TABLE IF NOT EXISTS vercel_auth (
+        user_id TEXT PRIMARY KEY,
+        access_token TEXT NOT NULL,
+        token_type TEXT DEFAULT 'Bearer',
+        scope TEXT,
+        team_id TEXT,
+        expires_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+
+    const vercelProjectsSchema = `
+      CREATE TABLE IF NOT EXISTS vercel_projects (
+        id TEXT PRIMARY KEY,
+        ref_id TEXT NOT NULL,
+        vercel_project_id TEXT NOT NULL UNIQUE,
+        project_name TEXT NOT NULL,
+        framework TEXT,
+        git_repo_url TEXT,
+        git_repo_type TEXT,
+        build_command TEXT,
+        output_directory TEXT,
+        install_command TEXT,
+        dev_command TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (ref_id) REFERENCES refs(id) ON DELETE CASCADE
+      )
+    `;
+
+    const vercelDeploymentsSchema = `
+      CREATE TABLE IF NOT EXISTS vercel_deployments (
+        id TEXT PRIMARY KEY,
+        vercel_project_id TEXT NOT NULL,
+        vercel_deployment_id TEXT NOT NULL UNIQUE,
+        ref_id TEXT NOT NULL,
+        commit_sha TEXT,
+        deployment_url TEXT,
+        state TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        building_at DATETIME,
+        completed_at DATETIME,
+        error_message TEXT,
+        meta_data TEXT,
+        FOREIGN KEY (vercel_project_id) REFERENCES vercel_projects(id) ON DELETE CASCADE,
+        FOREIGN KEY (ref_id) REFERENCES refs(id) ON DELETE CASCADE
+      )
+    `;
+
+    const vercelEnvironmentVariablesSchema = `
+      CREATE TABLE IF NOT EXISTS vercel_environment_variables (
+        id TEXT PRIMARY KEY,
+        vercel_project_id TEXT NOT NULL,
+        vercel_env_id TEXT,
+        key_name TEXT NOT NULL,
+        value_encrypted TEXT,
+        variable_type TEXT DEFAULT 'plain',
+        target_environments TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (vercel_project_id) REFERENCES vercel_projects(id) ON DELETE CASCADE,
+        UNIQUE(vercel_project_id, key_name)
+      )
+    `;
+
+    const gitRepositoriesSchema = `
+      CREATE TABLE IF NOT EXISTS git_repositories (
+        id TEXT PRIMARY KEY,
+        repo_url TEXT NOT NULL UNIQUE,
+        repo_type TEXT NOT NULL,
+        repo_owner TEXT,
+        repo_name TEXT,
+        is_private BOOLEAN DEFAULT FALSE,
+        access_token_encrypted TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+
+    const refGitRepositoriesSchema = `
+      CREATE TABLE IF NOT EXISTS ref_git_repositories (
+        ref_id TEXT NOT NULL,
+        git_repository_id TEXT NOT NULL,
+        is_primary BOOLEAN DEFAULT FALSE,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (ref_id, git_repository_id),
+        FOREIGN KEY (ref_id) REFERENCES refs(id) ON DELETE CASCADE,
+        FOREIGN KEY (git_repository_id) REFERENCES git_repositories(id) ON DELETE CASCADE
+      )
+    `;
+
     const indexSchemas = [
       'CREATE INDEX IF NOT EXISTS idx_logs_execution ON logs(execution_id)',
       'CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs(execution_id, timestamp)',
@@ -240,7 +334,18 @@ export class Database {
       'CREATE INDEX IF NOT EXISTS idx_git_operations_execution ON git_operations_log(execution_id)',
       'CREATE INDEX IF NOT EXISTS idx_git_operations_ref ON git_operations_log(ref_id)',
       'CREATE INDEX IF NOT EXISTS idx_execution_events_execution ON execution_events_log(execution_id)',
-      'CREATE INDEX IF NOT EXISTS idx_performance_metrics_execution ON performance_metrics(execution_id)'
+      'CREATE INDEX IF NOT EXISTS idx_performance_metrics_execution ON performance_metrics(execution_id)',
+      // Vercel integration indexes
+      'CREATE INDEX IF NOT EXISTS idx_vercel_auth_user_id ON vercel_auth(user_id)',
+      'CREATE INDEX IF NOT EXISTS idx_vercel_projects_ref_id ON vercel_projects(ref_id)',
+      'CREATE INDEX IF NOT EXISTS idx_vercel_projects_vercel_id ON vercel_projects(vercel_project_id)',
+      'CREATE INDEX IF NOT EXISTS idx_vercel_deployments_project_id ON vercel_deployments(vercel_project_id)',
+      'CREATE INDEX IF NOT EXISTS idx_vercel_deployments_ref_id ON vercel_deployments(ref_id)',
+      'CREATE INDEX IF NOT EXISTS idx_vercel_deployments_state ON vercel_deployments(state)',
+      'CREATE INDEX IF NOT EXISTS idx_vercel_env_vars_project_id ON vercel_environment_variables(vercel_project_id)',
+      'CREATE INDEX IF NOT EXISTS idx_git_repos_url ON git_repositories(repo_url)',
+      'CREATE INDEX IF NOT EXISTS idx_ref_git_repos_ref_id ON ref_git_repositories(ref_id)',
+      'CREATE INDEX IF NOT EXISTS idx_ref_git_repos_primary ON ref_git_repositories(ref_id, is_primary)'
     ];
 
     return new Promise((resolve, reject) => {
@@ -296,6 +401,31 @@ export class Database {
         });
 
         this.db!.run(performanceMetricsSchema, (err) => {
+          if (err) reject(err);
+        });
+
+        // Create Vercel integration tables
+        this.db!.run(vercelAuthSchema, (err) => {
+          if (err) reject(err);
+        });
+
+        this.db!.run(vercelProjectsSchema, (err) => {
+          if (err) reject(err);
+        });
+
+        this.db!.run(vercelDeploymentsSchema, (err) => {
+          if (err) reject(err);
+        });
+
+        this.db!.run(vercelEnvironmentVariablesSchema, (err) => {
+          if (err) reject(err);
+        });
+
+        this.db!.run(gitRepositoriesSchema, (err) => {
+          if (err) reject(err);
+        });
+
+        this.db!.run(refGitRepositoriesSchema, (err) => {
           if (err) reject(err);
         });
 

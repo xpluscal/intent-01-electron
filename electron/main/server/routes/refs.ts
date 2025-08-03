@@ -862,4 +862,299 @@ router.get('/executions/:executionId/logs', async (req, res, next) => {
   }
 });
 
+// Temporary: Add deploy prepare endpoint here until route loading issue is resolved
+router.post('/deploy/prepare/:refId', async (req, res, next) => {
+  try {
+    const { refId } = req.params;
+    const manager = getRefManager(req);
+
+    // Check if ref exists
+    if (!await manager.refExists(refId)) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: 'REF_NOT_FOUND',
+          message: `Reference '${refId}' not found`
+        }
+      });
+    }
+
+    const refPath = path.join(req.app.locals.workspace.workspace, 'refs', refId);
+    
+    // Basic git info
+    let gitInfo = {
+      hasRemote: false,
+      remoteUrl: '',
+      currentBranch: 'main',
+      needsCommit: false,
+      needsPush: false
+    };
+
+    try {
+      // First ensure git is initialized
+      try {
+        await manager.execGit(refPath, 'rev-parse --git-dir');
+      } catch (error) {
+        // Initialize git if not already
+        await manager.execGit(refPath, 'init');
+        await manager.execGit(refPath, 'add .');
+        await manager.execGit(refPath, 'commit -m "Initial commit"');
+        console.log('✅ Initialized git repository');
+      }
+      
+      // Get current branch
+      gitInfo.currentBranch = await manager.execGit(refPath, 'rev-parse --abbrev-ref HEAD');
+      
+      // Check if remote exists, if not create GitHub repo automatically
+      try {
+        gitInfo.remoteUrl = await manager.execGit(refPath, 'remote get-url origin');
+        gitInfo.hasRemote = true;
+        
+        // Check if there are uncommitted changes
+        const status = await manager.execGit(refPath, 'status --porcelain');
+        gitInfo.needsCommit = status.trim().length > 0;
+        
+        if (!gitInfo.needsCommit) {
+          // Check if local is ahead of remote
+          try {
+            const ahead = await manager.execGit(refPath, `rev-list --count origin/${gitInfo.currentBranch}..HEAD`);
+            gitInfo.needsPush = parseInt(ahead) > 0;
+          } catch (error) {
+            gitInfo.needsPush = true;
+          }
+        }
+      } catch (error) {
+        // No remote exists, let's create a GitHub repository automatically
+        gitInfo.hasRemote = false;
+        
+        try {
+          // Get user's GitHub username from git credential system
+          let githubUsername;
+          try {
+            // Use git credential fill to get the stored GitHub username
+            const credentialOutput = await manager.execGit(refPath, 
+              'credential fill <<< "protocol=https\nhost=github.com" | grep "^username=" | cut -d= -f2'
+            );
+            githubUsername = credentialOutput.trim();
+            
+            if (!githubUsername) {
+              throw new Error('No username found in git credentials');
+            }
+          } catch (error) {
+            // Fallback: try to parse from existing GitHub remotes
+            try {
+              const remotes = await manager.execGit(refPath, 'remote -v');
+              const match = remotes.match(/github\.com[:/]([^/]+)\//);
+              if (match) {
+                githubUsername = match[1];
+              } else {
+                throw new Error('No GitHub remotes found');
+              }
+            } catch (e) {
+              console.log('⚠️ Could not detect GitHub username automatically');
+              githubUsername = 'user'; // last resort fallback
+            }
+          }
+          
+          // Create repository name from refId
+          const repoName = refId.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+          
+          // Set up GitHub repository URL
+          const repoUrl = `https://github.com/${githubUsername}/${repoName}.git`;
+          
+          // Try to create the repository using GitHub API with git credentials
+          try {
+            // Get the stored GitHub token from git credential store
+            const credentialOutput = await manager.execGit(refPath, 
+              'credential fill <<< "protocol=https\nhost=github.com"'
+            );
+            
+            // Parse the password/token from credentials
+            const passwordMatch = credentialOutput.match(/password=(.+)/);
+            if (passwordMatch && passwordMatch[1]) {
+              const token = passwordMatch[1].trim();
+              
+              // Create repository using GitHub API
+              const createRepoPayload = JSON.stringify({
+                name: repoName,
+                private: false,
+                auto_init: false
+              });
+              
+              // Use direct shell execution instead of git command
+              const { exec } = await import('child_process');
+              const { promisify } = await import('util');
+              const execAsync = promisify(exec);
+              
+              const curlCommand = `curl -s -w "\\n%{http_code}" -X POST \
+                -H "Authorization: token ${token}" \
+                -H "Accept: application/vnd.github.v3+json" \
+                -H "Content-Type: application/json" \
+                -d '${createRepoPayload}' \
+                https://api.github.com/user/repos`;
+              
+              const { stdout: apiResponse } = await execAsync(curlCommand, { cwd: refPath });
+              const lines = apiResponse.trim().split('\n');
+              const httpCode = lines[lines.length - 1];
+              
+              if (httpCode === '201') {
+                console.log(`✅ Successfully created GitHub repository: ${repoName}`);
+              } else if (httpCode === '422') {
+                console.log(`ℹ️ Repository already exists: ${repoName}`);
+              } else {
+                console.log(`⚠️ GitHub API returned status ${httpCode}`);
+              }
+            }
+          } catch (error) {
+            console.log(`⚠️ Could not create repository automatically: ${error.message}`);
+          }
+          
+          // Add the remote
+          try {
+            await manager.execGit(refPath, `remote get-url origin`);
+            // Remote already exists, update it
+            await manager.execGit(refPath, `remote set-url origin ${repoUrl}`);
+          } catch {
+            // Add new remote
+            await manager.execGit(refPath, `remote add origin ${repoUrl}`);
+          }
+          
+          gitInfo.remoteUrl = repoUrl;
+          gitInfo.hasRemote = true;
+          
+          // Now try to push
+          try {
+            await manager.execGit(refPath, `push -u origin ${gitInfo.currentBranch}`);
+            gitInfo.needsPush = false;
+            console.log(`✅ Pushed to repository: ${repoName}`);
+          } catch (pushError) {
+            gitInfo.needsPush = true;
+            console.log(`ℹ️ Push failed: ${pushError.message}`);
+          }
+        } catch (autoSetupError) {
+          console.log(`❌ Failed to auto-setup repository: ${autoSetupError.message}`);
+          // Keep gitInfo.hasRemote = false to show manual instructions
+        }
+      }
+    } catch (error) {
+      // Git operations failed
+    }
+
+    // Auto-commit and push if needed
+    if (gitInfo.hasRemote && (gitInfo.needsCommit || gitInfo.needsPush)) {
+      try {
+        if (gitInfo.needsCommit) {
+          await manager.execGit(refPath, 'add .');
+          const commitMessage = `Deploy: ${new Date().toISOString()}`;
+          await manager.execGit(refPath, `commit -m "${commitMessage}"`);
+        }
+        
+        if (gitInfo.needsCommit || gitInfo.needsPush) {
+          await manager.execGit(refPath, `push -u origin ${gitInfo.currentBranch}`);
+          console.log(`✅ Pushed to remote: origin/${gitInfo.currentBranch}`);
+        }
+        
+        gitInfo.needsCommit = false;
+        gitInfo.needsPush = false;
+      } catch (error) {
+        console.log(`⚠️ Push failed: ${error.message}`);
+        // If push fails, it's likely because the repo doesn't exist on GitHub yet
+        if (error.message.includes('Repository not found') || error.message.includes('remote repository')) {
+          console.log(`ℹ️ The GitHub repository needs to be created first`);
+          gitInfo.needsPush = true; // Keep this flag so UI knows push is needed
+        }
+        // Continue anyway
+      }
+    }
+
+    // Read environment variables from .env.local
+    const envVars = [];
+    const envFilePath = path.join(refPath, '.env.local');
+    
+    try {
+      const envContent = await fs.readFile(envFilePath, 'utf8');
+      const lines = envContent.split('\n');
+      
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed && !trimmed.startsWith('#') && trimmed.includes('=')) {
+          const [key, ...valueParts] = trimmed.split('=');
+          const value = valueParts.join('=').replace(/^["']|["']$/g, '');
+          envVars.push({ key: key.trim(), value: value.trim() });
+        }
+      }
+    } catch (error) {
+      // .env.local doesn't exist - that's fine
+    }
+
+    // Generate Vercel import URL
+    let vercelImportUrl = 'https://vercel.com/new';
+    if (gitInfo.hasRemote && gitInfo.remoteUrl) {
+      // Extract owner and repo name from git URL for cleaner Vercel import
+      const repoMatch = gitInfo.remoteUrl.match(/github\.com[:/]([^/]+)\/([^/.]+)(\.git)?$/);
+      if (repoMatch) {
+        const [, owner, repo] = repoMatch;
+        // Use Vercel's cleaner import URL that doesn't trigger clone
+        vercelImportUrl = `https://vercel.com/new/import?s=https://github.com/${owner}/${repo}`;
+      } else {
+        // Fallback to encoded URL
+        const encodedRepoUrl = encodeURIComponent(gitInfo.remoteUrl);
+        vercelImportUrl = `https://vercel.com/new/import?s=${encodedRepoUrl}`;
+      }
+    }
+
+    // Get suggested project name
+    let suggestedProjectName = refId;
+    if (gitInfo.remoteUrl) {
+      const match = gitInfo.remoteUrl.match(/\/([^\/]+?)(?:\.git)?$/);
+      if (match) {
+        suggestedProjectName = match[1];
+      }
+    }
+
+    const result = {
+      success: true,
+      refId,
+      git: gitInfo,
+      environmentVariables: envVars,
+      vercelImportUrl,
+      suggestedProjectName,
+      instructions: {
+        hasRemote: gitInfo.hasRemote,
+        nextSteps: gitInfo.hasRemote ? 
+          (gitInfo.needsPush ? [
+            'GitHub remote is configured but push may have failed',
+            'If you see "Repository not found" error on Vercel:',
+            '1. Create the repository manually on GitHub',
+            '2. Run: git push -u origin main',
+            'Then click "Open Vercel Import" to deploy'
+          ] : [
+            'Your repository is ready and code is pushed!',
+            'Click "Open Vercel Import" below',
+            'Paste environment variables in Vercel',
+            'Deploy with one click!'
+          ]) : [
+            'No GitHub remote configured',
+            'To deploy, you need to:',
+            '1. Create a GitHub repository',
+            '2. Add it as remote: git remote add origin <repo-url>',
+            '3. Push your code: git push -u origin main',
+            'Then try deploying again'
+          ]
+      }
+    };
+
+    res.json(result);
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: {
+        code: 'PREPARATION_FAILED',
+        message: error.message || 'Failed to prepare deployment'
+      }
+    });
+  }
+});
+
 export default router;
