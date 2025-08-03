@@ -50,6 +50,8 @@ contextBridge.exposeInMainWorld('intentAPI', {
   checkGit: () => ipcRenderer.invoke('intent:check-git'),
   initGit: (refPath: string) => ipcRenderer.invoke('intent:init-git', refPath),
   installGit: () => ipcRenderer.invoke('intent:install-git'),
+  createNextApp: (refPath: string) => ipcRenderer.invoke('intent:create-next-app', refPath),
+  mergeExecutionBranch: (refId: string, executionId: string) => ipcRenderer.invoke('intent:merge-execution-branch', refId, executionId),
 })
 
 // --------- Preload scripts loading ---------

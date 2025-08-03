@@ -110,7 +110,7 @@ export function MarkdownEditor({ content, onChange, onSave }: MarkdownEditorProp
 
   return (
     <div className="h-full overflow-auto">
-      <div className="prose prose-sm dark:prose-invert max-w-none">
+      <div className="prose prose-sm dark:prose-invert max-w-none px-8">
         <div 
           ref={editorRef} 
           className="min-h-full p-4 focus:outline-none ProseMirror"

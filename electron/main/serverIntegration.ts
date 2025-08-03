@@ -267,6 +267,16 @@ export class IntentServer {
     
     logger.info('Shutting down Intent server...')
     
+    // Stop all preview processes
+    if (this.server && this.server.locals && this.server.locals.previewManager) {
+      try {
+        await this.server.locals.previewManager.stopAllPreviews()
+        logger.info('All previews stopped')
+      } catch (error) {
+        logger.error('Error stopping previews:', error)
+      }
+    }
+    
     if (this.server) {
       await new Promise<void>((resolve) => {
         this.server.close(() => {

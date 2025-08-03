@@ -1019,6 +1019,8 @@ class RefManager {
   constructor(workspacePath, performanceMonitor = null) {
     this.workspacePath = workspacePath;
     this.refsDir = path.join(workspacePath, "refs");
+    console.log(`[RefManager] Initialized with workspace: ${workspacePath}`);
+    console.log(`[RefManager] Refs directory: ${this.refsDir}`);
     this.performanceMonitor = performanceMonitor;
   }
   /**
@@ -1217,10 +1219,10 @@ ${error.stderr}`;
     const branchName = `exec-${executionId}`;
     await this.verifyRefExists(refId);
     try {
-      await this.execGit(
-        refPath,
-        `worktree add -b ${this.escapeArg(branchName)} ${this.escapeArg(targetPath)}`
-      );
+      const gitCommand = `worktree add -b ${this.escapeArg(branchName)} ${this.escapeArg(targetPath)}`;
+      console.log(`[RefManager] Creating worktree with command: git ${gitCommand}`);
+      await this.execGit(refPath, gitCommand);
+      console.log(`[RefManager] Worktree created successfully at ${targetPath} with branch ${branchName}`);
       return {
         worktreePath: targetPath,
         branch: branchName
@@ -1339,14 +1341,24 @@ ${error.stderr}`;
    */
   async refExists(refId) {
     const refPath = path.join(this.refsDir, refId);
+    console.log(`[RefManager] Checking if ref exists: ${refId} at path: ${refPath}`);
     try {
       const stat = await promises.stat(refPath);
       if (!stat.isDirectory()) {
+        console.log(`[RefManager] Path exists but is not a directory: ${refPath}`);
         return false;
       }
-      await this.execGit(refPath, "rev-parse --git-dir");
-      return true;
-    } catch {
+      console.log(`[RefManager] Directory exists: ${refPath}`);
+      try {
+        await this.execGit(refPath, "rev-parse --git-dir");
+        console.log(`[RefManager] Git repository confirmed: ${refPath}`);
+        return true;
+      } catch (gitError) {
+        console.log(`[RefManager] Directory exists but is not a git repository: ${refPath}`, gitError.message);
+        return false;
+      }
+    } catch (error) {
+      console.log(`[RefManager] Path does not exist: ${refPath}`, error.message);
       return false;
     }
   }
@@ -1392,8 +1404,11 @@ ${error.stderr}`;
 class ExecutionContextManager {
   constructor(workspaceManager, refManager2, previewManager2) {
     this.workspaceManager = workspaceManager;
-    this.refManager = refManager2 || new RefManager(workspaceManager.getWorkspacePath());
+    const workspacePath = workspaceManager.getWorkspacePath();
+    console.log(`[ExecutionContextManager] Workspace path: ${workspacePath}`);
+    this.refManager = refManager2 || new RefManager(workspacePath);
     this.executionsDir = workspaceManager.getExecutionsDir();
+    console.log(`[ExecutionContextManager] Executions directory: ${this.executionsDir}`);
     this.previewManager = previewManager2;
   }
   /**
@@ -1466,12 +1481,12 @@ class ExecutionContextManager {
     const skippedRefs = [];
     for (const refId of refIds) {
       if (!await this.refManager.refExists(refId)) {
-        console.warn(`Reference '${refId}' does not exist - skipping`);
-        skippedRefs.push(refId);
-        continue;
+        console.error(`[ExecutionContextManager] Read reference '${refId}' does not exist!`);
+        throw new Error(`Read reference '${refId}' does not exist. Please ensure all references are properly initialized.`);
       }
       const sourcePath = path.join(this.refManager.refsDir, refId);
       const linkPath = path.join(readDir, refId);
+      console.log(`[ExecutionContextManager] Creating read-only symlink from ${sourcePath} to ${linkPath}`);
       await promises.symlink(sourcePath, linkPath, "dir");
     }
     return skippedRefs;
@@ -1486,14 +1501,23 @@ class ExecutionContextManager {
     const skippedRefs = [];
     for (const refId of refIds) {
       if (!await this.refManager.refExists(refId)) {
-        console.warn(`Reference '${refId}' does not exist - skipping`);
-        skippedRefs.push(refId);
-        continue;
+        console.error(`[ExecutionContextManager] Mutate reference '${refId}' does not exist!`);
+        throw new Error(`Mutate reference '${refId}' does not exist. Please ensure all references are properly initialized.`);
       }
       const worktreePath = path.join(mutateDir, refId);
       try {
+        console.log(`[ExecutionContextManager] Creating worktree for ref ${refId} at ${worktreePath}`);
         const result = await this.refManager.createWorktree(refId, executionId, worktreePath);
+        console.log(`[ExecutionContextManager] Worktree created successfully:`, result);
         worktrees[refId] = result;
+        if (!this.pendingPreviews) {
+          this.pendingPreviews = [];
+        }
+        this.pendingPreviews.push({
+          executionId,
+          refType: "mutate",
+          refId
+        });
       } catch (error) {
         for (const [createdRefId, worktreeInfo] of Object.entries(worktrees)) {
           try {
@@ -1520,55 +1544,14 @@ class ExecutionContextManager {
       }
       const refDir = path.join(createDir, refId);
       await promises.mkdir(refDir, { recursive: true });
-      console.log(`[ExecutionContextManager] Running create-next-app for ${refId}...`);
-      const createNextProcess = spawn("npx", [
-        "create-next-app@latest",
-        ".",
-        "--ts",
-        "--tailwind",
-        "--eslint",
-        "--app",
-        "--use-npm",
-        "--import-alias",
-        "@/*",
-        "--src-dir",
-        "--turbopack",
-        "--example",
-        "https://github.com/resonancelabsai/intent-01-app-starter"
-      ], {
-        cwd: refDir,
-        stdio: "pipe",
-        shell: true
-      });
-      await new Promise((resolve, reject) => {
-        let output = "";
-        createNextProcess.stdout.on("data", (data) => {
-          output += data.toString();
-          console.log(`[create-next-app] ${data.toString().trim()}`);
-        });
-        createNextProcess.stderr.on("data", (data) => {
-          output += data.toString();
-          console.log(`[create-next-app stderr] ${data.toString().trim()}`);
-        });
-        createNextProcess.on("close", (code) => {
-          if (code === 0) {
-            console.log(`[ExecutionContextManager] create-next-app completed successfully for ${refId}`);
-            resolve();
-          } else {
-            reject(new Error(`create-next-app failed with code ${code}: ${output}`));
-          }
-        });
-        createNextProcess.on("error", (error) => {
-          reject(new Error(`Failed to run create-next-app: ${error.message}`));
-        });
-      });
+      console.log(`[ExecutionContextManager] Created directory for new reference: ${refDir}`);
       await promises.writeFile(
         path.join(refDir, ".new-reference"),
         JSON.stringify({
           refId,
           createdAt: (/* @__PURE__ */ new Date()).toISOString(),
           executionId,
-          type: "nextjs-app"
+          type: "create"
         })
       );
       if (!this.pendingPreviews) {
@@ -3532,6 +3515,12 @@ class PortAllocator {
       [previewId, port]
     );
   }
+  async allocatePortForPreview(port, previewId) {
+    await this.db.run(
+      "INSERT OR REPLACE INTO port_allocations (port, preview_id) VALUES (?, ?)",
+      [port, previewId]
+    );
+  }
   async getAllocatedPorts() {
     const rows = await this.db.all(
       "SELECT port, preview_id, allocated_at FROM port_allocations ORDER BY port"
@@ -4003,6 +3992,7 @@ class PreviewManager {
     this.healthChecker = new HealthChecker();
     this.previewProcesses = /* @__PURE__ */ new Map();
     this.sseConnections = /* @__PURE__ */ new Map();
+    this.cleanupStalePortAllocations();
     this.healthCheckInterval = 12e4;
     this.maxRestartAttempts = 1;
     this.restartDelay = 5e3;
@@ -4038,6 +4028,38 @@ class PreviewManager {
     this.executionErrors = /* @__PURE__ */ new Map();
     this.errorBufferDelay = 2e3;
     this.startHealthMonitoring();
+  }
+  async cleanupStalePortAllocations() {
+    try {
+      const cleaned = await this.portAllocator.cleanupStaleAllocations();
+      if (cleaned > 0) {
+        logger$a.info(`Cleaned up ${cleaned} stale port allocations on startup`);
+      }
+    } catch (error) {
+      logger$a.error("Failed to cleanup stale port allocations:", error);
+    }
+  }
+  async stopAllPreviews() {
+    logger$a.info("Stopping all preview processes...");
+    try {
+      const runningPreviews = await this.db.all(
+        "SELECT * FROM preview_processes WHERE status IN (?, ?, ?)",
+        ["installing", "starting", "running"]
+      );
+      logger$a.info(`Found ${runningPreviews.length} running previews to stop`);
+      for (const preview of runningPreviews) {
+        try {
+          await this.stopPreview(preview.execution_id, preview.id);
+          logger$a.info(`Stopped preview ${preview.id}`);
+        } catch (error) {
+          logger$a.error(`Failed to stop preview ${preview.id}:`, error);
+        }
+      }
+      await this.portAllocator.cleanupStaleAllocations();
+      logger$a.info("All previews stopped");
+    } catch (error) {
+      logger$a.error("Error stopping all previews:", error);
+    }
   }
   async analyzeProject(executionId, options = {}) {
     try {
@@ -4302,7 +4324,8 @@ class PreviewManager {
         NODE_ENV: "development",
         ...options.env
       };
-      delete env.PORT;
+      env.PORT = "0";
+      logger$a.info(`Starting preview ${previewId} with PORT=0 for auto-selection`);
       const [cmd, ...args] = command.split(" ");
       const childProcess = spawn(cmd, args, {
         cwd: workingDir,
@@ -4319,28 +4342,30 @@ class PreviewManager {
         "UPDATE preview_processes SET pid = ? WHERE id = ?",
         [childProcess.pid, previewId]
       );
-      let assignedPort = null;
-      childProcess.stdout.on("data", (data) => {
+      let detectedPort = null;
+      childProcess.stdout.on("data", async (data) => {
         const output = data.toString();
         this.handleProcessOutput(previewId, "stdout", output);
         this.checkForErrors(previewId, output, executionId);
-        if (!assignedPort) {
-          assignedPort = this.parsePortFromOutput(output, analysis.framework);
-          if (assignedPort) {
-            logger$a.info(`Detected port ${assignedPort} for preview ${previewId}`);
-            this.updatePreviewPort(previewId, assignedPort);
+        if (!detectedPort) {
+          const parsedPort = this.parsePortFromOutput(output, analysis.framework);
+          if (parsedPort) {
+            detectedPort = parsedPort;
+            logger$a.info(`Detected port ${detectedPort} for preview ${previewId}`);
+            await this.updatePreviewPort(previewId, detectedPort);
           }
         }
       });
-      childProcess.stderr.on("data", (data) => {
+      childProcess.stderr.on("data", async (data) => {
         const output = data.toString();
         this.handleProcessOutput(previewId, "stderr", output);
         this.checkForErrors(previewId, output, executionId);
-        if (!assignedPort) {
-          assignedPort = this.parsePortFromOutput(output, analysis.framework);
-          if (assignedPort) {
-            logger$a.info(`Detected port ${assignedPort} for preview ${previewId} (from stderr)`);
-            this.updatePreviewPort(previewId, assignedPort);
+        if (!detectedPort) {
+          const parsedPort = this.parsePortFromOutput(output, analysis.framework);
+          if (parsedPort) {
+            detectedPort = parsedPort;
+            logger$a.info(`Detected port ${detectedPort} for preview ${previewId} (from stderr)`);
+            await this.updatePreviewPort(previewId, detectedPort);
           }
         }
       });
@@ -4603,7 +4628,7 @@ This might be due to:
 
 Please check the logs above for more details. You can restart the preview using the UI controls.`;
           try {
-            await axios.post(`http://localhost:3010/message/${preview.execution_id}`, {
+            await axios.post(`http://localhost:3456/message/${preview.execution_id}`, {
               message: errorMessage
             });
             logger$a.info(`Sent exit notification to Claude for preview ${previewId}`);
@@ -4734,7 +4759,7 @@ data: ${data}
         "UPDATE preview_processes SET port = ?, urls = ? WHERE id = ?",
         [port, JSON.stringify(urls), previewId]
       );
-      await this.portAllocator.updatePortAllocation(port, previewId);
+      await this.portAllocator.allocatePortForPreview(port, previewId);
       logger$a.info(`Updated preview ${previewId} with detected port ${port}`);
       this.broadcastStatus(previewId, "port_detected", port, urls.local);
       this.startHealthCheck(previewId, port);
@@ -4831,19 +4856,10 @@ data: ${data}
     logger$a.info(`Attempting to restart preview ${previewData.id}`);
     try {
       await this.forceStopPreview(previewData.id);
-      const urls = previewData.urls ? JSON.parse(previewData.urls) : {};
-      const port = previewData.port;
-      if (!port) {
-        throw new Error("No port found for preview");
-      }
-      const isAvailable = await this.portAllocator.isPortAvailable(port);
-      if (!isAvailable) {
-        logger$a.warn(`Port ${port} is no longer available for preview ${previewData.id}`);
-        const newPort = await this.portAllocator.allocatePort();
-        logger$a.info(`Allocated new port ${newPort} for preview ${previewData.id}`);
-        await this.portAllocator.updatePortAllocation(newPort, previewData.id);
-        previewData.port = newPort;
-      }
+      await this.db.run(
+        "UPDATE preview_processes SET port = NULL, urls = ? WHERE id = ?",
+        [JSON.stringify({}), previewData.id]
+      );
       await this.db.run(
         "UPDATE preview_processes SET status = ? WHERE id = ?",
         ["starting", previewData.id]
@@ -5110,7 +5126,7 @@ Common solutions:
 - Install missing dependencies
 - Check import paths and module resolution
 - Verify configuration files`;
-      await axios.post(`http://localhost:3010/message/${executionId}`, {
+      await axios.post(`http://localhost:3456/message/${executionId}`, {
         message: errorMessage
       });
       execError.lastSent = Date.now();
@@ -5375,6 +5391,57 @@ router$b.post("/execute", async (req, res, next) => {
         await db.run(
           "UPDATE executions SET workspace_path = ?, working_dir = ? WHERE id = ?",
           [executionWorkspace.executionPath, actualWorkingDir, executionId]
+        );
+        const claudeMdContent = `# Execution Context
+
+## Execution ID: ${executionId}
+Created: ${(/* @__PURE__ */ new Date()).toISOString()}
+
+## Your Task
+${prompt}
+
+## Important Instructions
+1. **ALWAYS read the references FIRST** before making any changes
+2. **Show fast, incremental results**: Update components one by one so progress is visible
+3. **Make small commits** rather than one large change at the end
+4. **Keep the preview running** so the user can see your progress
+
+## Available References
+
+### Mutate (You will modify these)
+${refs.mutate && refs.mutate.length > 0 ? refs.mutate.map(
+          (refId) => `- **${refId}** - Located at: mutate/${refId}/`
+        ).join("\n") : "No mutate references provided."}
+
+### Read (Read these for context - DO NOT MODIFY)
+${refs.read && refs.read.length > 0 ? refs.read.map(
+          (refId) => `- **${refId}** - Located at: read/${refId}/`
+        ).join("\n") : "No read references provided."}
+
+### Create (Empty directories for new content)
+${refs.create && refs.create.length > 0 ? refs.create.map(
+          (dir) => `- **${dir}** - Located at: create/${dir}/`
+        ).join("\n") : "No create directories provided."}
+
+## Workspace Structure
+- **read/** - Contains read-only reference files. Read these first for context.
+- **mutate/** - Contains files you should modify to complete the task.
+- **create/** - Empty directories where you can create new content.
+
+## Git Information
+- Each mutate reference has its own git worktree
+- You can make commits in the mutate directories
+- Your changes are isolated to this execution
+
+## Remember
+1. Start by reading ALL files in the read/ directory to understand the context
+2. Focus on incremental, visible progress
+3. The user wants to see results quickly - update the main components first
+4. Make the preview functional as early as possible
+`;
+        await promises.writeFile(
+          path.join(executionWorkspace.executionPath, "CLAUDE.md"),
+          claudeMdContent
         );
         await contextManager.startPendingPreviews();
         logger$9.info("Execution workspace created", {
@@ -6442,10 +6509,50 @@ router$5.get("/refs/:refId/file", async (req, res, next) => {
     next(error);
   }
 });
+router$5.get("/refs/:refId/executions", async (req, res, next) => {
+  try {
+    const { refId } = req.params;
+    const { db } = req.app.locals;
+    const executions = await db.all(`
+      SELECT DISTINCT 
+        e.id,
+        e.status,
+        e.phase,
+        e.agent_type,
+        e.created_at as created,
+        e.completed_at as completed,
+        e.rollback_reason as error,
+        e.message_count,
+        e.workspace_path
+      FROM executions e
+      INNER JOIN execution_refs er ON e.id = er.execution_id
+      WHERE er.ref_id = ? AND er.permission = 'mutate'
+      ORDER BY e.created_at DESC
+    `, [refId]);
+    const executionsWithRefs = await Promise.all(executions.map(async (exec2) => {
+      const readRefs = await db.all(`
+        SELECT ref_id
+        FROM execution_refs
+        WHERE execution_id = ? AND permission = 'read'
+      `, [exec2.id]);
+      return {
+        ...exec2,
+        readReferences: readRefs.map((r) => r.ref_id)
+      };
+    }));
+    res.json({
+      refId,
+      executions: executionsWithRefs
+    });
+  } catch (error) {
+    logger$5.error("Failed to get executions for ref", { refId: req.params.refId, error: error.message });
+    next(error);
+  }
+});
 router$5.post("/refs/:refId/merge", async (req, res, next) => {
   try {
     const { refId } = req.params;
-    const { sourceBranch, targetBranch = "main", strategy = "merge", commitMessage } = req.body;
+    const { sourceBranch, targetBranch = "main", strategy = "merge", commitMessage, executionId } = req.body;
     const manager = getRefManager(req);
     if (!sourceBranch) {
       return res.status(400).json({
@@ -6514,7 +6621,7 @@ router$5.post("/refs/:refId/merge", async (req, res, next) => {
           await req.app.locals.db.run(
             `INSERT INTO ref_changes (execution_id, ref_id, change_type, branch_name, commit_hash, commit_message, merge_status) 
              VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [null, refId, "merge", sourceBranch, mergeCommit, subject, "success"]
+            [executionId || null, refId, "merge", sourceBranch, mergeCommit, subject, "success"]
           );
         } catch (dbError) {
           logger$5.warn("Failed to record merge in database:", dbError);
@@ -6732,6 +6839,29 @@ router$5.get("/refs/:refId/diff", async (req, res, next) => {
       }
     });
   } catch (error) {
+    next(error);
+  }
+});
+router$5.get("/executions/:executionId/logs", async (req, res, next) => {
+  try {
+    const { executionId } = req.params;
+    const { db } = req.app.locals;
+    const logs = await db.all(`
+      SELECT timestamp, type, content
+      FROM logs
+      WHERE execution_id = ?
+      ORDER BY timestamp ASC
+    `, [executionId]);
+    res.json({
+      executionId,
+      logs: logs.map((log) => ({
+        timestamp: log.timestamp,
+        type: log.type,
+        content: typeof log.content === "string" ? JSON.parse(log.content) : log.content
+      }))
+    });
+  } catch (error) {
+    logger$5.error("Failed to get logs for execution", { executionId: req.params.executionId, error: error.message });
     next(error);
   }
 });
@@ -8146,6 +8276,14 @@ class IntentServer {
     }
     const logger2 = createLogger("serverIntegration");
     logger2.info("Shutting down Intent server...");
+    if (this.server && this.server.locals && this.server.locals.previewManager) {
+      try {
+        await this.server.locals.previewManager.stopAllPreviews();
+        logger2.info("All previews stopped");
+      } catch (error) {
+        logger2.error("Error stopping previews:", error);
+      }
+    }
     if (this.server) {
       await new Promise((resolve) => {
         this.server.close(() => {
@@ -8187,8 +8325,8 @@ async function createWindow() {
   win = new BrowserWindow({
     title: "Main window",
     icon: path.join(process.env.VITE_PUBLIC, "favicon.ico"),
-    width: 1280,
-    height: 720,
+    width: 1440,
+    height: 810,
     webPreferences: {
       preload
       // Warning: Enable nodeIntegration and disable contextIsolation is not secure in production
@@ -8504,6 +8642,62 @@ node_modules/
     return { success: false, error: error.message };
   }
 });
+ipcMain.handle("intent:create-next-app", async (event, refPath) => {
+  const userDataPath = app.getPath("userData");
+  const workspacePath = path.join(userDataPath, "intent-workspace");
+  const fullPath = path.join(workspacePath, refPath);
+  if (!fullPath.startsWith(workspacePath)) {
+    throw new Error("Access denied: Path outside workspace");
+  }
+  try {
+    console.log(`[Main] Running create-next-app in ${fullPath}`);
+    const { spawn: spawn2 } = await import("node:child_process");
+    return new Promise((resolve, reject) => {
+      const createNextProcess = spawn2("npx", [
+        "create-next-app@latest",
+        ".",
+        "--ts",
+        "--tailwind",
+        "--eslint",
+        "--app",
+        "--use-npm",
+        "--import-alias",
+        "@/*",
+        "--src-dir",
+        "--turbopack",
+        "--example",
+        "https://github.com/resonancelabsai/intent-01-app-starter"
+      ], {
+        cwd: fullPath,
+        stdio: "pipe",
+        shell: true
+      });
+      let output = "";
+      createNextProcess.stdout.on("data", (data) => {
+        output += data.toString();
+        console.log(`[create-next-app] ${data.toString().trim()}`);
+      });
+      createNextProcess.stderr.on("data", (data) => {
+        output += data.toString();
+        console.log(`[create-next-app stderr] ${data.toString().trim()}`);
+      });
+      createNextProcess.on("close", (code) => {
+        if (code === 0) {
+          console.log(`[Main] create-next-app completed successfully`);
+          resolve({ success: true });
+        } else {
+          reject(new Error(`create-next-app failed with code ${code}: ${output}`));
+        }
+      });
+      createNextProcess.on("error", (error) => {
+        reject(new Error(`Failed to run create-next-app: ${error.message}`));
+      });
+    });
+  } catch (error) {
+    console.error("create-next-app error:", error);
+    return { success: false, error: error.message };
+  }
+});
 ipcMain.handle("intent:install-git", async () => {
   const platform = os.platform();
   try {
@@ -8517,6 +8711,36 @@ ipcMain.handle("intent:install-git", async () => {
       return {
         success: false,
         message: "Please install Git using your package manager:\nUbuntu/Debian: sudo apt-get install git\nFedora: sudo dnf install git\nArch: sudo pacman -S git"
+      };
+    }
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+ipcMain.handle("intent:merge-execution-branch", async (event, refId, executionId) => {
+  var _a;
+  try {
+    const response = await fetch(`http://localhost:3456/refs/${refId}/merge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sourceBranch: `exec-${executionId}`,
+        targetBranch: "main",
+        strategy: "merge",
+        commitMessage: `Merge changes from execution ${executionId}`,
+        executionId
+      })
+    });
+    const data = await response.json();
+    if (response.ok && data.success) {
+      return {
+        success: true,
+        message: data.message || "Successfully merged execution changes"
+      };
+    } else {
+      return {
+        success: false,
+        error: ((_a = data.error) == null ? void 0 : _a.message) || "Failed to merge execution branch"
       };
     }
   } catch (error) {

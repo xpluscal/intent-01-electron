@@ -53,8 +53,8 @@ async function createWindow() {
   win = new BrowserWindow({
     title: 'Main window',
     icon: path.join(process.env.VITE_PUBLIC, 'favicon.ico'),
-    width: 1280,
-    height: 720,
+    width: 1440,
+    height: 810,
     webPreferences: {
       preload,
       // Warning: Enable nodeIntegration and disable contextIsolation is not secure in production
@@ -469,6 +469,71 @@ node_modules/
   }
 })
 
+// Create Next.js app
+ipcMain.handle('intent:create-next-app', async (event, refPath) => {
+  const userDataPath = app.getPath('userData')
+  const workspacePath = path.join(userDataPath, 'intent-workspace')
+  const fullPath = path.join(workspacePath, refPath)
+  
+  if (!fullPath.startsWith(workspacePath)) {
+    throw new Error('Access denied: Path outside workspace')
+  }
+  
+  try {
+    console.log(`[Main] Running create-next-app in ${fullPath}`)
+    
+    const { spawn } = await import('node:child_process')
+    
+    return new Promise((resolve, reject) => {
+      const createNextProcess = spawn('npx', [
+        'create-next-app@latest',
+        '.',
+        '--ts',
+        '--tailwind',
+        '--eslint',
+        '--app',
+        '--use-npm',
+        '--import-alias', '@/*',
+        '--src-dir',
+        '--turbopack',
+        '--example', 'https://github.com/resonancelabsai/intent-01-app-starter'
+      ], {
+        cwd: fullPath,
+        stdio: 'pipe',
+        shell: true
+      })
+      
+      let output = ''
+      
+      createNextProcess.stdout.on('data', (data) => {
+        output += data.toString()
+        console.log(`[create-next-app] ${data.toString().trim()}`)
+      })
+      
+      createNextProcess.stderr.on('data', (data) => {
+        output += data.toString()
+        console.log(`[create-next-app stderr] ${data.toString().trim()}`)
+      })
+      
+      createNextProcess.on('close', (code) => {
+        if (code === 0) {
+          console.log(`[Main] create-next-app completed successfully`)
+          resolve({ success: true })
+        } else {
+          reject(new Error(`create-next-app failed with code ${code}: ${output}`))
+        }
+      })
+      
+      createNextProcess.on('error', (error) => {
+        reject(new Error(`Failed to run create-next-app: ${error.message}`))
+      })
+    })
+  } catch (error) {
+    console.error('create-next-app error:', error)
+    return { success: false, error: error.message }
+  }
+})
+
 // Install Git if not present (macOS/Windows)
 ipcMain.handle('intent:install-git', async () => {
   const platform = os.platform()
@@ -491,6 +556,39 @@ ipcMain.handle('intent:install-git', async () => {
                  'Ubuntu/Debian: sudo apt-get install git\n' +
                  'Fedora: sudo dnf install git\n' +
                  'Arch: sudo pacman -S git'
+      }
+    }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+})
+
+// Merge execution branch into main
+ipcMain.handle('intent:merge-execution-branch', async (event, refId, executionId) => {
+  try {
+    const response = await fetch(`http://localhost:3456/refs/${refId}/merge`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sourceBranch: `exec-${executionId}`,
+        targetBranch: 'main',
+        strategy: 'merge',
+        commitMessage: `Merge changes from execution ${executionId}`,
+        executionId: executionId
+      })
+    })
+
+    const data = await response.json()
+    
+    if (response.ok && data.success) {
+      return { 
+        success: true, 
+        message: data.message || 'Successfully merged execution changes'
+      }
+    } else {
+      return { 
+        success: false, 
+        error: data.error?.message || 'Failed to merge execution branch'
       }
     }
   } catch (error) {

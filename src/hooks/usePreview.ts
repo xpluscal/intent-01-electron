@@ -88,7 +88,7 @@ export function usePreview(refId: string) {
               clearInterval(pollInterval)
             }
           }
-        }, 1000)
+        }, 5000) // Poll every 5 seconds instead of 1 second
         
         return { success: true }
       } else {

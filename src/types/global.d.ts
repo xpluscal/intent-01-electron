@@ -34,6 +34,8 @@ interface IntentAPI {
   checkGit: () => Promise<{ installed: boolean; version?: string }>
   initGit: (refPath: string) => Promise<{ success: boolean; error?: string }>
   installGit: () => Promise<{ success: boolean; message?: string; error?: string }>
+  createNextApp: (refPath: string) => Promise<{ success: boolean; error?: string }>
+  mergeExecutionBranch: (refId: string, executionId: string) => Promise<{ success: boolean; message?: string; error?: string }>
   
   // Preview operations
   startPreview: (refId: string) => Promise<PreviewStartResult>
