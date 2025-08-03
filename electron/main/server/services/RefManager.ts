@@ -9,6 +9,8 @@ class RefManager {
   constructor(workspacePath, performanceMonitor = null) {
     this.workspacePath = workspacePath;
     this.refsDir = path.join(workspacePath, 'refs');
+    console.log(`[RefManager] Initialized with workspace: ${workspacePath}`);
+    console.log(`[RefManager] Refs directory: ${this.refsDir}`);
     this.performanceMonitor = performanceMonitor;
   }
 
@@ -250,9 +252,10 @@ class RefManager {
     
     try {
       // Create new branch and worktree in one command
-      await this.execGit(refPath,
-        `worktree add -b ${this.escapeArg(branchName)} ${this.escapeArg(targetPath)}`
-      );
+      const gitCommand = `worktree add -b ${this.escapeArg(branchName)} ${this.escapeArg(targetPath)}`;
+      console.log(`[RefManager] Creating worktree with command: git ${gitCommand}`);
+      await this.execGit(refPath, gitCommand);
+      console.log(`[RefManager] Worktree created successfully at ${targetPath} with branch ${branchName}`);
       
       return {
         worktreePath: targetPath,
@@ -409,17 +412,27 @@ class RefManager {
    */
   async refExists(refId) {
     const refPath = path.join(this.refsDir, refId);
+    console.log(`[RefManager] Checking if ref exists: ${refId} at path: ${refPath}`);
     
     try {
       const stat = await fs.stat(refPath);
       if (!stat.isDirectory()) {
+        console.log(`[RefManager] Path exists but is not a directory: ${refPath}`);
         return false;
       }
+      console.log(`[RefManager] Directory exists: ${refPath}`);
       
       // Check if it's a git repository
-      await this.execGit(refPath, 'rev-parse --git-dir');
-      return true;
-    } catch {
+      try {
+        await this.execGit(refPath, 'rev-parse --git-dir');
+        console.log(`[RefManager] Git repository confirmed: ${refPath}`);
+        return true;
+      } catch (gitError) {
+        console.log(`[RefManager] Directory exists but is not a git repository: ${refPath}`, gitError.message);
+        return false;
+      }
+    } catch (error) {
+      console.log(`[RefManager] Path does not exist: ${refPath}`, error.message);
       return false;
     }
   }

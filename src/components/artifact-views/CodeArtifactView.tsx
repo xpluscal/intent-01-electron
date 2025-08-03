@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react'
 import { Button } from '../ui/button'
 import { Badge } from '../ui/badge'
-import { Code2, X, BookOpen, Play, Square, Loader2, ExternalLink, AlertCircle, Maximize2, Minimize2, RefreshCw } from 'lucide-react'
+import { Code2, X, BookOpen, Play, Square, Loader2, ExternalLink, AlertCircle, Maximize2, Minimize2, RefreshCw, Send } from 'lucide-react'
 import { projectManager } from '@/lib/projectManager'
 import { Reference } from '@/types/projects'
 import { usePreview } from '@/hooks/usePreview'
+import { useExecution } from '@/hooks/useExecution'
 import { TerminalLogViewer } from './code/terminal-log-viewer'
 import { cn } from '@/lib/utils'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs'
+import { Textarea } from '../ui/textarea'
 
 interface CodeArtifactViewProps {
   refId: string
@@ -19,7 +22,12 @@ export function CodeArtifactView({ refId, refName, onClose }: CodeArtifactViewPr
   const [loading, setLoading] = useState(true)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [iframeKey, setIframeKey] = useState(0)
+  const [activeTab, setActiveTab] = useState('current')
+  const [message, setMessage] = useState('')
+  const [executionMessages, setExecutionMessages] = useState<Map<string, string>>(new Map())
+  
   const { status, logs, loading: previewLoading, startPreview, stopPreview } = usePreview(refId)
+  const { executions, logs: executionLogs, loading: executionLoading, startExecution, sendMessage, getExecutionsByArtifact } = useExecution()
 
   const handleRefresh = () => {
     setIframeKey(prev => prev + 1)
@@ -27,7 +35,13 @@ export function CodeArtifactView({ refId, refName, onClose }: CodeArtifactViewPr
 
   useEffect(() => {
     loadReadReferences()
+    loadExecutions()
   }, [refId])
+
+  const loadExecutions = async () => {
+    // This will load historical executions and update the hook's state
+    await getExecutionsByArtifact(refId)
+  }
 
   const loadReadReferences = async () => {
     try {
@@ -39,6 +53,39 @@ export function CodeArtifactView({ refId, refName, onClose }: CodeArtifactViewPr
       setLoading(false)
     }
   }
+
+  const handleStartExecution = async () => {
+    if (!message.trim()) return
+    
+    const result = await startExecution({
+      artifactId: refId,
+      readReferences: readReferences.map(r => r.id),
+      message: message.trim()
+    })
+    
+    if (result.success && result.executionId) {
+      setMessage('')
+      // Switch to the new execution tab
+      setActiveTab(`execution-${result.executionId}`)
+    }
+  }
+
+  const handleSendMessage = async (executionId: string) => {
+    const msg = executionMessages.get(executionId)
+    if (!msg?.trim()) return
+    
+    const result = await sendMessage(executionId, msg.trim())
+    if (result.success) {
+      setExecutionMessages(prev => {
+        const newMap = new Map(prev)
+        newMap.set(executionId, '')
+        return newMap
+      })
+    }
+  }
+
+  const executionList = Array.from(executions.values())
+  
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
@@ -79,68 +126,86 @@ export function CodeArtifactView({ refId, refName, onClose }: CodeArtifactViewPr
           )}
         </div>
       </div>
+      
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
+        <TabsList className="mx-4 mt-2 w-fit">
+          <TabsTrigger value="current">Current</TabsTrigger>
+          {executionList.map((exec, index) => (
+            <TabsTrigger key={exec.id} value={`execution-${exec.id}`}>
+              Execution #{index + 1}
+              {exec.status === 'running' && (
+                <Badge variant="success" className="ml-2 text-xs px-1 py-0 h-4">
+                  Running
+                </Badge>
+              )}
+            </TabsTrigger>
+          ))}
+        </TabsList>
 
-      {/* Preview Controls */}
-      <div className="px-4 py-2 border-b bg-muted/30 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Button
-            onClick={() => status.running ? stopPreview() : startPreview()}
-            disabled={previewLoading}
-            size="sm"
-            variant={status.running ? "destructive" : "default"}
-          >
-            {previewLoading ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                {status.status === 'installing' ? 'Installing...' : 'Starting...'}
-              </>
-            ) : status.running ? (
-              <>
-                <Square className="h-4 w-4 mr-2" />
-                Stop Preview
-              </>
-            ) : (
-              <>
-                <Play className="h-4 w-4 mr-2" />
-                Start Preview
-              </>
-            )}
-          </Button>
-          
-          <div className="flex items-center gap-2 text-sm">
-            <span className="text-muted-foreground">Status:</span>
-            <Badge 
-              variant={status.running ? "success" : status.status === 'error' ? "destructive" : "secondary"}
-              className="capitalize"
-            >
-              {status.status}
-            </Badge>
-          </div>
-          
-          {status.port && (
-            <div className="flex items-center gap-2 text-sm">
-              <span className="text-muted-foreground">Port:</span>
-              <span className="font-mono">{status.port}</span>
+        {/* Current Tab - Preview */}
+        <TabsContent value="current" className="flex-1 flex flex-col min-h-0">
+          {/* Preview Controls */}
+          <div className="px-4 py-2 border-b bg-muted/30 flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <Button
+                onClick={() => status.running ? stopPreview() : startPreview()}
+                disabled={previewLoading}
+                size="sm"
+                variant={status.running ? "destructive" : "default"}
+              >
+                {previewLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    {status.status === 'installing' ? 'Installing...' : 'Starting...'}
+                  </>
+                ) : status.running ? (
+                  <>
+                    <Square className="h-4 w-4 mr-2" />
+                    Stop Preview
+                  </>
+                ) : (
+                  <>
+                    <Play className="h-4 w-4 mr-2" />
+                    Start Preview
+                  </>
+                )}
+              </Button>
+              
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-muted-foreground">Status:</span>
+                <Badge 
+                  variant={status.running ? "success" : status.status === 'error' ? "destructive" : "secondary"}
+                  className="capitalize"
+                >
+                  {status.status}
+                </Badge>
+              </div>
+              
+              {status.port && (
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-muted-foreground">Port:</span>
+                  <span className="font-mono">{status.port}</span>
+                </div>
+              )}
             </div>
-          )}
-        </div>
-        
-        {status.url && (
-          <Button
-            variant="ghost"
-            size="sm"
-            asChild
-          >
-            <a href={status.url} target="_blank" rel="noopener noreferrer">
-              Open in Browser
-              <ExternalLink className="h-3 w-3 ml-2" />
-            </a>
-          </Button>
-        )}
-      </div>
+            
+            {status.url && (
+              <Button
+                variant="ghost"
+                size="sm"
+                asChild
+              >
+                <a href={status.url} target="_blank" rel="noopener noreferrer">
+                  Open in Browser
+                  <ExternalLink className="h-3 w-3 ml-2" />
+                </a>
+              </Button>
+            )}
+          </div>
 
-      {/* Content */}
-      <div className="flex-1 flex flex-col min-h-0">
+          {/* Content */}
+          <div className="flex-1 flex flex-col min-h-0">
         {/* Fullscreen Preview */}
         {isFullscreen && status.running && status.url && (
           <div className="fixed inset-0 z-50 bg-background flex flex-col">
@@ -239,13 +304,167 @@ export function CodeArtifactView({ refId, refName, onClose }: CodeArtifactViewPr
         </div>
         
         {/* Terminal Logs */}
-        <div className={cn("h-[40%] min-h-[200px] border-t", isFullscreen && "hidden")}>
+        <div className={cn("h-[30%] min-h-[150px] border-t", isFullscreen && "hidden")}>
           <TerminalLogViewer 
             logs={logs.map(log => `[${log.timestamp}] [${log.type}] ${log.content}`)}
             className="h-full"
           />
         </div>
+        
+        {/* Message Input */}
+        <div className={cn("border-t p-4 flex gap-2", isFullscreen && "hidden")}>
+          <Textarea
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                handleStartExecution()
+              }
+            }}
+            placeholder="Enter a message to start a new execution..."
+            className="flex-1 resize-none"
+            rows={2}
+          />
+          <Button
+            onClick={handleStartExecution}
+            disabled={!message.trim() || executionLoading}
+            size="icon"
+            className="h-[72px] w-[72px]"
+          >
+            {executionLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
+          </Button>
+        </div>
       </div>
+    </TabsContent>
+        {/* Execution Tabs */}
+        {executionList.map((execution, index) => {
+          const execLogs = executionLogs.get(execution.id) || []
+          const execMessage = executionMessages.get(execution.id) || ''
+          
+          return (
+            <TabsContent key={execution.id} value={`execution-${execution.id}`} className="flex-1 flex flex-col min-h-0">
+              {/* Execution Status Bar */}
+              <div className="px-4 py-2 border-b bg-muted/30 flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="text-muted-foreground">Status:</span>
+                    <Badge 
+                      variant={
+                        execution.status === 'running' ? "success" : 
+                        execution.status === 'completed' ? "secondary" : 
+                        execution.status === 'failed' ? "destructive" : "outline"
+                      }
+                      className="capitalize"
+                    >
+                      {execution.status}
+                    </Badge>
+                  </div>
+                  
+                  {execution.phase && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="text-muted-foreground">Phase:</span>
+                      <span className="capitalize">{execution.phase}</span>
+                    </div>
+                  )}
+                  
+                  {execution.created && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="text-muted-foreground">Started:</span>
+                      <span>{new Date(execution.created).toLocaleTimeString()}</span>
+                    </div>
+                  )}
+                </div>
+                
+                {execution.preview?.url && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    asChild
+                  >
+                    <a href={execution.preview.url} target="_blank" rel="noopener noreferrer">
+                      Open Preview
+                      <ExternalLink className="h-3 w-3 ml-2" />
+                    </a>
+                  </Button>
+                )}
+              </div>
+              
+              {/* Content */}
+              <div className="flex-1 flex flex-col min-h-0">
+                {/* Preview iframe if available */}
+                <div className="flex-1 min-h-0 relative">
+                  {execution.preview?.url && execution.preview.status === 'running' ? (
+                    <iframe
+                      src={execution.preview.url}
+                      className="w-full h-full border-0"
+                      title={`Execution ${execution.id} Preview`}
+                    />
+                  ) : (
+                    <div className="h-full flex items-center justify-center bg-muted/10">
+                      <div className="text-center">
+                        <Code2 className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                        <h3 className="text-lg font-medium mb-2">No Preview Available</h3>
+                        <p className="text-sm text-muted-foreground">
+                          {execution.status === 'running' ? 'Execution in progress...' : 'Preview will appear when execution starts'}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                
+                {/* Terminal Logs */}
+                <div className="h-[30%] min-h-[150px] border-t">
+                  <TerminalLogViewer 
+                    logs={execLogs.map(log => `[${log.timestamp}] [${log.type}] ${JSON.stringify(log.content)}`)}
+                    className="h-full"
+                  />
+                </div>
+                
+                {/* Message Input */}
+                <div className="border-t p-4 flex gap-2">
+                  <Textarea
+                    value={execMessage}
+                    onChange={(e) => {
+                      setExecutionMessages(prev => {
+                        const newMap = new Map(prev)
+                        newMap.set(execution.id, e.target.value)
+                        return newMap
+                      })
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault()
+                        handleSendMessage(execution.id)
+                      }
+                    }}
+                    placeholder={
+                      execution.status === 'running' 
+                        ? "Send a message to the execution..."
+                        : "Execution must be running to send messages"
+                    }
+                    disabled={execution.status !== 'running'}
+                    className="flex-1 resize-none"
+                    rows={2}
+                  />
+                  <Button
+                    onClick={() => handleSendMessage(execution.id)}
+                    disabled={!execMessage.trim() || execution.status !== 'running'}
+                    size="icon"
+                    className="h-[72px] w-[72px]"
+                  >
+                    <Send className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </TabsContent>
+          )
+        })}
+      </Tabs>
     </div>
   )
 }

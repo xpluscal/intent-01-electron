@@ -1019,6 +1019,8 @@ class RefManager {
   constructor(workspacePath, performanceMonitor = null) {
     this.workspacePath = workspacePath;
     this.refsDir = path.join(workspacePath, "refs");
+    console.log(`[RefManager] Initialized with workspace: ${workspacePath}`);
+    console.log(`[RefManager] Refs directory: ${this.refsDir}`);
     this.performanceMonitor = performanceMonitor;
   }
   /**
@@ -1217,10 +1219,10 @@ ${error.stderr}`;
     const branchName = `exec-${executionId}`;
     await this.verifyRefExists(refId);
     try {
-      await this.execGit(
-        refPath,
-        `worktree add -b ${this.escapeArg(branchName)} ${this.escapeArg(targetPath)}`
-      );
+      const gitCommand = `worktree add -b ${this.escapeArg(branchName)} ${this.escapeArg(targetPath)}`;
+      console.log(`[RefManager] Creating worktree with command: git ${gitCommand}`);
+      await this.execGit(refPath, gitCommand);
+      console.log(`[RefManager] Worktree created successfully at ${targetPath} with branch ${branchName}`);
       return {
         worktreePath: targetPath,
         branch: branchName
@@ -1339,14 +1341,24 @@ ${error.stderr}`;
    */
   async refExists(refId) {
     const refPath = path.join(this.refsDir, refId);
+    console.log(`[RefManager] Checking if ref exists: ${refId} at path: ${refPath}`);
     try {
       const stat = await promises.stat(refPath);
       if (!stat.isDirectory()) {
+        console.log(`[RefManager] Path exists but is not a directory: ${refPath}`);
         return false;
       }
-      await this.execGit(refPath, "rev-parse --git-dir");
-      return true;
-    } catch {
+      console.log(`[RefManager] Directory exists: ${refPath}`);
+      try {
+        await this.execGit(refPath, "rev-parse --git-dir");
+        console.log(`[RefManager] Git repository confirmed: ${refPath}`);
+        return true;
+      } catch (gitError) {
+        console.log(`[RefManager] Directory exists but is not a git repository: ${refPath}`, gitError.message);
+        return false;
+      }
+    } catch (error) {
+      console.log(`[RefManager] Path does not exist: ${refPath}`, error.message);
       return false;
     }
   }
@@ -1392,8 +1404,11 @@ ${error.stderr}`;
 class ExecutionContextManager {
   constructor(workspaceManager, refManager2, previewManager2) {
     this.workspaceManager = workspaceManager;
-    this.refManager = refManager2 || new RefManager(workspaceManager.getWorkspacePath());
+    const workspacePath = workspaceManager.getWorkspacePath();
+    console.log(`[ExecutionContextManager] Workspace path: ${workspacePath}`);
+    this.refManager = refManager2 || new RefManager(workspacePath);
     this.executionsDir = workspaceManager.getExecutionsDir();
+    console.log(`[ExecutionContextManager] Executions directory: ${this.executionsDir}`);
     this.previewManager = previewManager2;
   }
   /**
@@ -1466,12 +1481,12 @@ class ExecutionContextManager {
     const skippedRefs = [];
     for (const refId of refIds) {
       if (!await this.refManager.refExists(refId)) {
-        console.warn(`Reference '${refId}' does not exist - skipping`);
-        skippedRefs.push(refId);
-        continue;
+        console.error(`[ExecutionContextManager] Read reference '${refId}' does not exist!`);
+        throw new Error(`Read reference '${refId}' does not exist. Please ensure all references are properly initialized.`);
       }
       const sourcePath = path.join(this.refManager.refsDir, refId);
       const linkPath = path.join(readDir, refId);
+      console.log(`[ExecutionContextManager] Creating read-only symlink from ${sourcePath} to ${linkPath}`);
       await promises.symlink(sourcePath, linkPath, "dir");
     }
     return skippedRefs;
@@ -1486,13 +1501,14 @@ class ExecutionContextManager {
     const skippedRefs = [];
     for (const refId of refIds) {
       if (!await this.refManager.refExists(refId)) {
-        console.warn(`Reference '${refId}' does not exist - skipping`);
-        skippedRefs.push(refId);
-        continue;
+        console.error(`[ExecutionContextManager] Mutate reference '${refId}' does not exist!`);
+        throw new Error(`Mutate reference '${refId}' does not exist. Please ensure all references are properly initialized.`);
       }
       const worktreePath = path.join(mutateDir, refId);
       try {
+        console.log(`[ExecutionContextManager] Creating worktree for ref ${refId} at ${worktreePath}`);
         const result = await this.refManager.createWorktree(refId, executionId, worktreePath);
+        console.log(`[ExecutionContextManager] Worktree created successfully:`, result);
         worktrees[refId] = result;
       } catch (error) {
         for (const [createdRefId, worktreeInfo] of Object.entries(worktrees)) {
@@ -6442,6 +6458,46 @@ router$5.get("/refs/:refId/file", async (req, res, next) => {
     next(error);
   }
 });
+router$5.get("/refs/:refId/executions", async (req, res, next) => {
+  try {
+    const { refId } = req.params;
+    const { db } = req.app.locals;
+    const executions = await db.all(`
+      SELECT DISTINCT 
+        e.id,
+        e.status,
+        e.phase,
+        e.agent_type,
+        e.created_at as created,
+        e.completed_at as completed,
+        e.rollback_reason as error,
+        e.message_count,
+        e.workspace_path
+      FROM executions e
+      INNER JOIN execution_refs er ON e.id = er.execution_id
+      WHERE er.ref_id = ? AND er.permission = 'mutate'
+      ORDER BY e.created_at DESC
+    `, [refId]);
+    const executionsWithRefs = await Promise.all(executions.map(async (exec2) => {
+      const readRefs = await db.all(`
+        SELECT ref_id
+        FROM execution_refs
+        WHERE execution_id = ? AND permission = 'read'
+      `, [exec2.id]);
+      return {
+        ...exec2,
+        readReferences: readRefs.map((r) => r.ref_id)
+      };
+    }));
+    res.json({
+      refId,
+      executions: executionsWithRefs
+    });
+  } catch (error) {
+    logger$5.error("Failed to get executions for ref", { refId: req.params.refId, error: error.message });
+    next(error);
+  }
+});
 router$5.post("/refs/:refId/merge", async (req, res, next) => {
   try {
     const { refId } = req.params;
@@ -8187,8 +8243,8 @@ async function createWindow() {
   win = new BrowserWindow({
     title: "Main window",
     icon: path.join(process.env.VITE_PUBLIC, "favicon.ico"),
-    width: 1280,
-    height: 720,
+    width: 1440,
+    height: 810,
     webPreferences: {
       preload
       // Warning: Enable nodeIntegration and disable contextIsolation is not secure in production

@@ -429,6 +429,54 @@ router.get('/refs/:refId/file', async (req, res, next) => {
   }
 });
 
+// Get executions for a specific reference
+router.get('/refs/:refId/executions', async (req, res, next) => {
+  try {
+    const { refId } = req.params;
+    const { db } = req.app.locals;
+    
+    // Query executions where this ref was used as a mutate item
+    const executions = await db.all(`
+      SELECT DISTINCT 
+        e.id,
+        e.status,
+        e.phase,
+        e.agent_type,
+        e.created_at as created,
+        e.completed_at as completed,
+        e.rollback_reason as error,
+        e.message_count,
+        e.workspace_path
+      FROM executions e
+      INNER JOIN execution_refs er ON e.id = er.execution_id
+      WHERE er.ref_id = ? AND er.permission = 'mutate'
+      ORDER BY e.created_at DESC
+    `, [refId]);
+    
+    // For each execution, get the read references
+    const executionsWithRefs = await Promise.all(executions.map(async (exec) => {
+      const readRefs = await db.all(`
+        SELECT ref_id
+        FROM execution_refs
+        WHERE execution_id = ? AND permission = 'read'
+      `, [exec.id]);
+      
+      return {
+        ...exec,
+        readReferences: readRefs.map(r => r.ref_id)
+      };
+    }));
+    
+    res.json({
+      refId,
+      executions: executionsWithRefs
+    });
+  } catch (error) {
+    logger.error('Failed to get executions for ref', { refId: req.params.refId, error: error.message });
+    next(error);
+  }
+});
+
 // Merge branches
 router.post('/refs/:refId/merge', async (req, res, next) => {
   try {
