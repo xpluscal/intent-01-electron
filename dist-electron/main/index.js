@@ -16,7 +16,6 @@ import fs, { promises } from "node:fs";
 import dotenv from "dotenv";
 import { promisify } from "util";
 import { v4 } from "uuid";
-import axios from "axios";
 import net from "node:net";
 import http from "node:http";
 import https from "node:https";
@@ -3234,6 +3233,15 @@ class ClaudeSDKManager {
       session.abortController.abort();
     }
     this.activeSessions.delete(executionId);
+    this.pendingMessages.delete(executionId);
+    await this.updateExecutionStatus(executionId, ExecutionStatus.COMPLETED);
+    this.eventEmitter.emit(Events.PROCESS_EXIT, {
+      executionId,
+      code: 0,
+      signal: "SIGTERM"
+    });
+    this.eventEmitter.emit(Events.BUFFER_FLUSH, { executionId });
+    logger$e.info("Execution stopped and cleanup completed", { executionId });
     return true;
   }
   async cleanup(executionId) {
@@ -4141,8 +4149,6 @@ class PreviewManager {
       /Export encountered errors/i
     ];
     this.recentErrors = /* @__PURE__ */ new Map();
-    this.executionErrors = /* @__PURE__ */ new Map();
-    this.errorBufferDelay = 2e3;
     this.startHealthMonitoring();
   }
   async cleanupStalePortAllocations() {
@@ -4729,28 +4735,20 @@ class PreviewManager {
         );
         if (preview && preview.execution_id) {
           logger$a.warn(`Preview ${previewId} exited unexpectedly (code: ${code}, signal: ${signal})`);
-          const errorMessage = `⚠️ **Preview Process Exited**
-
-Preview for ${preview.ref_type}/${preview.ref_id} stopped unexpectedly.
-
-Exit code: ${code}
-Signal: ${signal || "none"}
-
-This might be due to:
-- A crash in the application
-- Memory issues
-- Build/compilation errors
-- Port conflicts
-
-Please check the logs above for more details. You can restart the preview using the UI controls.`;
-          try {
-            await axios.post(`http://localhost:3456/message/${preview.execution_id}`, {
-              message: errorMessage
-            });
-            logger$a.info(`Sent exit notification to Claude for preview ${previewId}`);
-          } catch (error) {
-            logger$a.error(`Failed to send exit notification to Claude:`, error);
-          }
+          logger$a.error(`Preview process exited unexpectedly:`, {
+            previewId,
+            executionId: preview.execution_id,
+            refType: preview.ref_type,
+            refId: preview.ref_id,
+            exitCode: code,
+            signal: signal || "none",
+            possibleCauses: [
+              "Crash in the application",
+              "Memory issues",
+              "Build/compilation errors",
+              "Port conflicts"
+            ]
+          });
         }
       }
     } catch (error) {
@@ -5160,7 +5158,7 @@ data: ${data}
     }
   }
   /**
-   * Check for errors in preview logs and send to Claude if needed
+   * Check for errors in preview logs for logging purposes only
    */
   async checkForErrors(previewId, content, executionId) {
     let errorFound = null;
@@ -5170,88 +5168,8 @@ data: ${data}
         break;
       }
     }
-    if (!errorFound) return;
-    let execError = this.executionErrors.get(executionId);
-    if (!execError) {
-      execError = {
-        errorBuffer: /* @__PURE__ */ new Set(),
-        timeoutId: null,
-        lastSent: 0,
-        isHandling: false
-      };
-      this.executionErrors.set(executionId, execError);
-    }
-    if (execError.isHandling) {
-      logger$a.debug(`Already handling error for execution ${executionId}, skipping`);
-      return;
-    }
-    const now = Date.now();
-    if (execError.lastSent && now - execError.lastSent < 6e4) {
-      logger$a.debug(`Recently sent error for execution ${executionId}, skipping`);
-      return;
-    }
-    execError.errorBuffer.add(errorFound);
-    if (execError.timeoutId) {
-      clearTimeout(execError.timeoutId);
-    }
-    execError.timeoutId = setTimeout(async () => {
-      await this.sendBufferedErrors(executionId, previewId);
-    }, this.errorBufferDelay);
-  }
-  /**
-   * Send buffered errors to Claude after delay
-   */
-  async sendBufferedErrors(executionId, previewId) {
-    const execError = this.executionErrors.get(executionId);
-    if (!execError || execError.errorBuffer.size === 0) return;
-    execError.isHandling = true;
-    try {
-      const execution = await this.db.get(
-        "SELECT agent_type FROM executions WHERE id = ?",
-        [executionId]
-      );
-      if (execution && execution.agent_type === "claude") {
-        logger$a.info(`Checking Claude session status for execution ${executionId}`);
-      }
-      logger$a.info(`Sending buffered errors to Claude for execution ${executionId}`);
-      const preview = await this.db.get(
-        "SELECT * FROM preview_processes WHERE id = ?",
-        [previewId]
-      );
-      if (!preview) {
-        execError.errorBuffer.clear();
-        execError.isHandling = false;
-        return;
-      }
-      const allErrors = Array.from(execError.errorBuffer).join("\n\n---\n\n");
-      const errorMessage = `🚨 **Preview Error Detected**
-
-Preview for ${preview.ref_type}/${preview.ref_id} encountered errors:
-
-\`\`\`
-${allErrors}
-\`\`\`
-
-The preview server needs attention. Please:
-1. Review and fix the errors above
-2. The preview will automatically restart once fixed
-3. If needed, you can manually restart using the UI
-
-Common solutions:
-- Fix TypeScript/build errors
-- Install missing dependencies
-- Check import paths and module resolution
-- Verify configuration files`;
-      await axios.post(`http://localhost:3456/message/${executionId}`, {
-        message: errorMessage
-      });
-      execError.lastSent = Date.now();
-      execError.errorBuffer.clear();
-      logger$a.info(`Successfully sent error message to Claude for execution ${executionId}`);
-    } catch (error) {
-      logger$a.error(`Failed to send error to Claude:`, error);
-    } finally {
-      execError.isHandling = false;
+    if (errorFound) {
+      logger$a.warn(`Preview error detected for execution ${executionId}:`, errorFound);
     }
   }
   /**
@@ -5290,14 +5208,7 @@ Common solutions:
           [preview.execution_id, previewId]
         );
         if (otherPreviews.count === 0) {
-          const execError = this.executionErrors.get(preview.execution_id);
-          if (execError) {
-            if (execError.timeoutId) {
-              clearTimeout(execError.timeoutId);
-            }
-            this.executionErrors.delete(preview.execution_id);
-            logger$a.debug(`Cleaned up error tracking for execution ${preview.execution_id}`);
-          }
+          logger$a.debug(`No more active previews for execution ${preview.execution_id}`);
         }
       }
       logger$a.info(`Preview ${previewId} exited with status: ${status}`);
@@ -5700,11 +5611,16 @@ router$b.post("/stop/:executionId", async (req, res, next) => {
       await claudeSDKManager.stopExecution(executionId);
     } else if (processManager) {
       await processManager.stopProcess(executionId);
+      await db.run(
+        "UPDATE executions SET status = ?, phase = ? WHERE id = ?",
+        [ExecutionStatus.COMPLETED, "stopped", executionId]
+      );
+      eventEmitter.emit(Events.PROCESS_EXIT, {
+        executionId,
+        code: 0,
+        signal: "SIGTERM"
+      });
     }
-    await db.run(
-      "UPDATE executions SET status = ?, phase = ? WHERE id = ?",
-      [ExecutionStatus.COMPLETED, "stopped", executionId]
-    );
     eventEmitter.emit(Events.LOG_ENTRY, {
       executionId,
       timestamp: (/* @__PURE__ */ new Date()).toISOString(),
@@ -5714,12 +5630,6 @@ router$b.post("/stop/:executionId", async (req, res, next) => {
         subtype: "stopped",
         message: "Execution stopped by user"
       })
-    });
-    eventEmitter.emit(Events.PROCESS_EXIT, {
-      executionId,
-      code: 0,
-      // Use code 0 to trigger git integration
-      signal: null
     });
     logger$9.info("Execution stopped successfully", { executionId });
     res.json({

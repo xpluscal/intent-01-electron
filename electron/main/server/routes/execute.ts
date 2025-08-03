@@ -374,18 +374,26 @@ router.post('/stop/:executionId', async (req, res, next) => {
     
     // Stop the execution based on agent type
     if (execution.agent_type === 'claude' && claudeSDKManager) {
+      // Claude SDK Manager handles status update and PROCESS_EXIT event
       await claudeSDKManager.stopExecution(executionId);
     } else if (processManager) {
       await processManager.stopProcess(executionId);
+      
+      // For non-Claude agents, we need to update status and emit events
+      await db.run(
+        'UPDATE executions SET status = ?, phase = ? WHERE id = ?',
+        [ExecutionStatus.COMPLETED, 'stopped', executionId]
+      );
+      
+      // Emit process exit event to trigger git integration
+      eventEmitter.emit(Events.PROCESS_EXIT, { 
+        executionId, 
+        code: 0,
+        signal: 'SIGTERM'
+      });
     }
     
-    // Update status to completed
-    await db.run(
-      'UPDATE executions SET status = ?, phase = ? WHERE id = ?',
-      [ExecutionStatus.COMPLETED, 'stopped', executionId]
-    );
-    
-    // Emit cancellation event
+    // Emit stop event for logging
     eventEmitter.emit(Events.LOG_ENTRY, {
       executionId,
       timestamp: new Date().toISOString(),
@@ -395,13 +403,6 @@ router.post('/stop/:executionId', async (req, res, next) => {
         subtype: 'stopped',
         message: 'Execution stopped by user'
       })
-    });
-    
-    // Emit process exit event to trigger git integration (same as when Claude completes normally)
-    eventEmitter.emit(Events.PROCESS_EXIT, { 
-      executionId, 
-      code: 0,  // Use code 0 to trigger git integration
-      signal: null
     });
     
     logger.info('Execution stopped successfully', { executionId });

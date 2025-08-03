@@ -2,7 +2,6 @@ import { spawn } from 'node:child_process';
 import { v4 as uuidv4 } from 'uuid';
 import os from 'node:os';
 import path from 'node:path';
-import axios from 'axios';
 import { createLogger } from '../logger.js';
 import { default as PortAllocator } from './portAllocator.js';
 import { default as ProjectAnalyzer } from './projectAnalyzer.js';
@@ -61,12 +60,8 @@ class PreviewManager {
       /Export encountered errors/i
     ];
     
-    // Track recent errors to avoid spam
+    // Track recent errors for logging only
     this.recentErrors = new Map(); // previewId -> { count, lastSent }
-    
-    // Execution-level error tracking to prevent multiple Claude sessions
-    this.executionErrors = new Map(); // executionId -> { errorBuffer, timeoutId, lastSent, isHandling }
-    this.errorBufferDelay = 2000; // 2 seconds to collect full error context
     
     // Start health monitoring
     this.startHealthMonitoring();
@@ -797,26 +792,21 @@ class PreviewManager {
         if (preview && preview.execution_id) {
           logger.warn(`Preview ${previewId} exited unexpectedly (code: ${code}, signal: ${signal})`);
           
-          // Send error to Claude instead of auto-restarting
-          const errorMessage = `⚠️ **Preview Process Exited**\n\n` +
-            `Preview for ${preview.ref_type}/${preview.ref_id} stopped unexpectedly.\n\n` +
-            `Exit code: ${code}\n` +
-            `Signal: ${signal || 'none'}\n\n` +
-            `This might be due to:\n` +
-            `- A crash in the application\n` +
-            `- Memory issues\n` +
-            `- Build/compilation errors\n` +
-            `- Port conflicts\n\n` +
-            `Please check the logs above for more details. You can restart the preview using the UI controls.`;
-          
-          try {
-            await axios.post(`http://localhost:3456/message/${preview.execution_id}`, {
-              message: errorMessage
-            });
-            logger.info(`Sent exit notification to Claude for preview ${previewId}`);
-          } catch (error) {
-            logger.error(`Failed to send exit notification to Claude:`, error);
-          }
+          // Log the error details for debugging
+          logger.error(`Preview process exited unexpectedly:`, {
+            previewId,
+            executionId: preview.execution_id,
+            refType: preview.ref_type,
+            refId: preview.ref_id,
+            exitCode: code,
+            signal: signal || 'none',
+            possibleCauses: [
+              'Crash in the application',
+              'Memory issues',
+              'Build/compilation errors',
+              'Port conflicts'
+            ]
+          });
         }
       }
     } catch (error) {
@@ -1335,7 +1325,7 @@ class PreviewManager {
   }
 
   /**
-   * Check for errors in preview logs and send to Claude if needed
+   * Check for errors in preview logs for logging purposes only
    */
   async checkForErrors(previewId, content, executionId) {
     // Check if content contains any error patterns
@@ -1347,117 +1337,11 @@ class PreviewManager {
       }
     }
     
-    if (!errorFound) return;
-    
-    // Get or create execution error state
-    let execError = this.executionErrors.get(executionId);
-    if (!execError) {
-      execError = {
-        errorBuffer: new Set(),
-        timeoutId: null,
-        lastSent: 0,
-        isHandling: false
-      };
-      this.executionErrors.set(executionId, execError);
+    if (errorFound) {
+      logger.warn(`Preview error detected for execution ${executionId}:`, errorFound);
     }
-    
-    // Check if we're already handling an error for this execution
-    if (execError.isHandling) {
-      logger.debug(`Already handling error for execution ${executionId}, skipping`);
-      return;
-    }
-    
-    // Check if we've sent an error recently (within 60 seconds)
-    const now = Date.now();
-    if (execError.lastSent && (now - execError.lastSent) < 60000) {
-      logger.debug(`Recently sent error for execution ${executionId}, skipping`);
-      return;
-    }
-    
-    // Add error to buffer
-    execError.errorBuffer.add(errorFound);
-    
-    // Clear existing timeout if any
-    if (execError.timeoutId) {
-      clearTimeout(execError.timeoutId);
-    }
-    
-    // Set a new timeout to send the buffered errors
-    execError.timeoutId = setTimeout(async () => {
-      await this.sendBufferedErrors(executionId, previewId);
-    }, this.errorBufferDelay);
   }
 
-  /**
-   * Send buffered errors to Claude after delay
-   */
-  async sendBufferedErrors(executionId, previewId) {
-    const execError = this.executionErrors.get(executionId);
-    if (!execError || execError.errorBuffer.size === 0) return;
-    
-    // Mark as handling to prevent duplicates
-    execError.isHandling = true;
-    
-    try {
-      // Check if Claude is already active for this execution
-      // We need to check with the Claude SDK Manager through the database
-      const execution = await this.db.get(
-        'SELECT agent_type FROM executions WHERE id = ?',
-        [executionId]
-      );
-      
-      if (execution && execution.agent_type === 'claude') {
-        // For Claude executions, check if there's an active session
-        // We'll rely on the startExecution check we added to prevent duplicates
-        logger.info(`Checking Claude session status for execution ${executionId}`);
-      }
-      
-      logger.info(`Sending buffered errors to Claude for execution ${executionId}`);
-      
-      // Get preview info
-      const preview = await this.db.get(
-        'SELECT * FROM preview_processes WHERE id = ?',
-        [previewId]
-      );
-      
-      if (!preview) {
-        execError.errorBuffer.clear();
-        execError.isHandling = false;
-        return;
-      }
-      
-      // Combine all buffered errors
-      const allErrors = Array.from(execError.errorBuffer).join('\n\n---\n\n');
-      
-      const errorMessage = `🚨 **Preview Error Detected**\n\n` +
-        `Preview for ${preview.ref_type}/${preview.ref_id} encountered errors:\n\n` +
-        `\`\`\`\n${allErrors}\n\`\`\`\n\n` +
-        `The preview server needs attention. Please:\n` +
-        `1. Review and fix the errors above\n` +
-        `2. The preview will automatically restart once fixed\n` +
-        `3. If needed, you can manually restart using the UI\n\n` +
-        `Common solutions:\n` +
-        `- Fix TypeScript/build errors\n` +
-        `- Install missing dependencies\n` +
-        `- Check import paths and module resolution\n` +
-        `- Verify configuration files`;
-      
-      // Send message to Claude
-      await axios.post(`http://localhost:3456/message/${executionId}`, {
-        message: errorMessage
-      });
-      
-      // Update tracking
-      execError.lastSent = Date.now();
-      execError.errorBuffer.clear();
-      
-      logger.info(`Successfully sent error message to Claude for execution ${executionId}`);
-    } catch (error) {
-      logger.error(`Failed to send error to Claude:`, error);
-    } finally {
-      execError.isHandling = false;
-    }
-  }
 
   /**
    * Handle preview process error
@@ -1505,16 +1389,9 @@ class PreviewManager {
           [preview.execution_id, previewId]
         );
         
-        // If no other active previews, clean up execution error tracking
+        // If no other active previews, log for debugging
         if (otherPreviews.count === 0) {
-          const execError = this.executionErrors.get(preview.execution_id);
-          if (execError) {
-            if (execError.timeoutId) {
-              clearTimeout(execError.timeoutId);
-            }
-            this.executionErrors.delete(preview.execution_id);
-            logger.debug(`Cleaned up error tracking for execution ${preview.execution_id}`);
-          }
+          logger.debug(`No more active previews for execution ${preview.execution_id}`);
         }
       }
       
