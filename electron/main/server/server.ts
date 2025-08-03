@@ -55,6 +55,9 @@ import cleanupRoutes from './routes/cleanup.js';
 import resourcesRoutes from './routes/resources.js';
 import monitoringRoutes from './routes/monitoring.js';
 import executionFilesRoutes from './routes/executionFiles.js';
+import vercelRoutes from './routes/vercel.js';
+import deployRoutes from './routes/deploy.js';
+import deployPrepRoutes from './routes/deployPrep.js';
 
 app.use('/', executeRoutes);
 app.use('/', statusRoutes);
@@ -67,6 +70,9 @@ app.use('/', cleanupRoutes);
 app.use('/', resourcesRoutes);
 app.use('/', monitoringRoutes);
 app.use('/', executionFilesRoutes);
+app.use('/', vercelRoutes);
+app.use('/', deployRoutes);
+app.use('/', deployPrepRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

@@ -394,6 +394,93 @@ class Database {
         FOREIGN KEY (execution_id) REFERENCES executions(id)
       )
     `;
+    const vercelAuthSchema = `
+      CREATE TABLE IF NOT EXISTS vercel_auth (
+        user_id TEXT PRIMARY KEY,
+        access_token TEXT NOT NULL,
+        token_type TEXT DEFAULT 'Bearer',
+        scope TEXT,
+        team_id TEXT,
+        expires_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+    const vercelProjectsSchema = `
+      CREATE TABLE IF NOT EXISTS vercel_projects (
+        id TEXT PRIMARY KEY,
+        ref_id TEXT NOT NULL,
+        vercel_project_id TEXT NOT NULL UNIQUE,
+        project_name TEXT NOT NULL,
+        framework TEXT,
+        git_repo_url TEXT,
+        git_repo_type TEXT,
+        build_command TEXT,
+        output_directory TEXT,
+        install_command TEXT,
+        dev_command TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (ref_id) REFERENCES refs(id) ON DELETE CASCADE
+      )
+    `;
+    const vercelDeploymentsSchema = `
+      CREATE TABLE IF NOT EXISTS vercel_deployments (
+        id TEXT PRIMARY KEY,
+        vercel_project_id TEXT NOT NULL,
+        vercel_deployment_id TEXT NOT NULL UNIQUE,
+        ref_id TEXT NOT NULL,
+        commit_sha TEXT,
+        deployment_url TEXT,
+        state TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        building_at DATETIME,
+        completed_at DATETIME,
+        error_message TEXT,
+        meta_data TEXT,
+        FOREIGN KEY (vercel_project_id) REFERENCES vercel_projects(id) ON DELETE CASCADE,
+        FOREIGN KEY (ref_id) REFERENCES refs(id) ON DELETE CASCADE
+      )
+    `;
+    const vercelEnvironmentVariablesSchema = `
+      CREATE TABLE IF NOT EXISTS vercel_environment_variables (
+        id TEXT PRIMARY KEY,
+        vercel_project_id TEXT NOT NULL,
+        vercel_env_id TEXT,
+        key_name TEXT NOT NULL,
+        value_encrypted TEXT,
+        variable_type TEXT DEFAULT 'plain',
+        target_environments TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (vercel_project_id) REFERENCES vercel_projects(id) ON DELETE CASCADE,
+        UNIQUE(vercel_project_id, key_name)
+      )
+    `;
+    const gitRepositoriesSchema = `
+      CREATE TABLE IF NOT EXISTS git_repositories (
+        id TEXT PRIMARY KEY,
+        repo_url TEXT NOT NULL UNIQUE,
+        repo_type TEXT NOT NULL,
+        repo_owner TEXT,
+        repo_name TEXT,
+        is_private BOOLEAN DEFAULT FALSE,
+        access_token_encrypted TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+    const refGitRepositoriesSchema = `
+      CREATE TABLE IF NOT EXISTS ref_git_repositories (
+        ref_id TEXT NOT NULL,
+        git_repository_id TEXT NOT NULL,
+        is_primary BOOLEAN DEFAULT FALSE,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (ref_id, git_repository_id),
+        FOREIGN KEY (ref_id) REFERENCES refs(id) ON DELETE CASCADE,
+        FOREIGN KEY (git_repository_id) REFERENCES git_repositories(id) ON DELETE CASCADE
+      )
+    `;
     const indexSchemas = [
       "CREATE INDEX IF NOT EXISTS idx_logs_execution ON logs(execution_id)",
       "CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs(execution_id, timestamp)",
@@ -410,7 +497,18 @@ class Database {
       "CREATE INDEX IF NOT EXISTS idx_git_operations_execution ON git_operations_log(execution_id)",
       "CREATE INDEX IF NOT EXISTS idx_git_operations_ref ON git_operations_log(ref_id)",
       "CREATE INDEX IF NOT EXISTS idx_execution_events_execution ON execution_events_log(execution_id)",
-      "CREATE INDEX IF NOT EXISTS idx_performance_metrics_execution ON performance_metrics(execution_id)"
+      "CREATE INDEX IF NOT EXISTS idx_performance_metrics_execution ON performance_metrics(execution_id)",
+      // Vercel integration indexes
+      "CREATE INDEX IF NOT EXISTS idx_vercel_auth_user_id ON vercel_auth(user_id)",
+      "CREATE INDEX IF NOT EXISTS idx_vercel_projects_ref_id ON vercel_projects(ref_id)",
+      "CREATE INDEX IF NOT EXISTS idx_vercel_projects_vercel_id ON vercel_projects(vercel_project_id)",
+      "CREATE INDEX IF NOT EXISTS idx_vercel_deployments_project_id ON vercel_deployments(vercel_project_id)",
+      "CREATE INDEX IF NOT EXISTS idx_vercel_deployments_ref_id ON vercel_deployments(ref_id)",
+      "CREATE INDEX IF NOT EXISTS idx_vercel_deployments_state ON vercel_deployments(state)",
+      "CREATE INDEX IF NOT EXISTS idx_vercel_env_vars_project_id ON vercel_environment_variables(vercel_project_id)",
+      "CREATE INDEX IF NOT EXISTS idx_git_repos_url ON git_repositories(repo_url)",
+      "CREATE INDEX IF NOT EXISTS idx_ref_git_repos_ref_id ON ref_git_repositories(ref_id)",
+      "CREATE INDEX IF NOT EXISTS idx_ref_git_repos_primary ON ref_git_repositories(ref_id, is_primary)"
     ];
     return new Promise((resolve, reject) => {
       if (!this.db) {
@@ -452,6 +550,24 @@ class Database {
           if (err) reject(err);
         });
         this.db.run(performanceMetricsSchema, (err) => {
+          if (err) reject(err);
+        });
+        this.db.run(vercelAuthSchema, (err) => {
+          if (err) reject(err);
+        });
+        this.db.run(vercelProjectsSchema, (err) => {
+          if (err) reject(err);
+        });
+        this.db.run(vercelDeploymentsSchema, (err) => {
+          if (err) reject(err);
+        });
+        this.db.run(vercelEnvironmentVariablesSchema, (err) => {
+          if (err) reject(err);
+        });
+        this.db.run(gitRepositoriesSchema, (err) => {
+          if (err) reject(err);
+        });
+        this.db.run(refGitRepositoriesSchema, (err) => {
           if (err) reject(err);
         });
         indexSchemas.forEach((schema) => {
@@ -5556,6 +5672,66 @@ ${refs.create && refs.create.length > 0 ? refs.create.map(
     next(error);
   }
 });
+router$b.post("/stop/:executionId", async (req, res, next) => {
+  try {
+    const { executionId } = req.params;
+    const { db, eventEmitter, claudeSDKManager, processManager } = req.app.locals;
+    logger$9.info("Stopping execution", { executionId });
+    const execution = await db.get(
+      "SELECT * FROM executions WHERE id = ?",
+      [executionId]
+    );
+    if (!execution) {
+      return res.status(404).json({
+        error: {
+          code: "EXECUTION_NOT_FOUND",
+          message: `Execution ${executionId} not found`
+        }
+      });
+    }
+    if (execution.status === ExecutionStatus.COMPLETED || execution.status === ExecutionStatus.CANCELLED || execution.status === ExecutionStatus.ERROR) {
+      return res.json({
+        executionId,
+        status: execution.status,
+        message: "Execution already stopped"
+      });
+    }
+    if (execution.agent_type === "claude" && claudeSDKManager) {
+      await claudeSDKManager.stopExecution(executionId);
+    } else if (processManager) {
+      await processManager.stopProcess(executionId);
+    }
+    await db.run(
+      "UPDATE executions SET status = ?, phase = ? WHERE id = ?",
+      [ExecutionStatus.COMPLETED, "stopped", executionId]
+    );
+    eventEmitter.emit(Events.LOG_ENTRY, {
+      executionId,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      type: "system",
+      content: JSON.stringify({
+        type: "system",
+        subtype: "stopped",
+        message: "Execution stopped by user"
+      })
+    });
+    eventEmitter.emit(Events.PROCESS_EXIT, {
+      executionId,
+      code: 0,
+      // Use code 0 to trigger git integration
+      signal: null
+    });
+    logger$9.info("Execution stopped successfully", { executionId });
+    res.json({
+      executionId,
+      status: ExecutionStatus.COMPLETED,
+      message: "Execution stopped successfully"
+    });
+  } catch (error) {
+    logger$9.error("Failed to stop execution", { executionId: req.params.executionId, error });
+    next(error);
+  }
+});
 const router$a = express.Router();
 router$a.get("/status/:executionId", async (req, res, next) => {
   try {
@@ -6863,6 +7039,227 @@ router$5.get("/executions/:executionId/logs", async (req, res, next) => {
   } catch (error) {
     logger$5.error("Failed to get logs for execution", { executionId: req.params.executionId, error: error.message });
     next(error);
+  }
+});
+router$5.post("/deploy/prepare/:refId", async (req, res, next) => {
+  try {
+    const { refId } = req.params;
+    const manager = getRefManager(req);
+    if (!await manager.refExists(refId)) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: "REF_NOT_FOUND",
+          message: `Reference '${refId}' not found`
+        }
+      });
+    }
+    const refPath = path.join(req.app.locals.workspace.workspace, "refs", refId);
+    let gitInfo = {
+      hasRemote: false,
+      remoteUrl: "",
+      currentBranch: "main",
+      needsCommit: false,
+      needsPush: false
+    };
+    try {
+      try {
+        await manager.execGit(refPath, "rev-parse --git-dir");
+      } catch (error) {
+        await manager.execGit(refPath, "init");
+        await manager.execGit(refPath, "add .");
+        await manager.execGit(refPath, 'commit -m "Initial commit"');
+        console.log("✅ Initialized git repository");
+      }
+      gitInfo.currentBranch = await manager.execGit(refPath, "rev-parse --abbrev-ref HEAD");
+      try {
+        gitInfo.remoteUrl = await manager.execGit(refPath, "remote get-url origin");
+        gitInfo.hasRemote = true;
+        const status = await manager.execGit(refPath, "status --porcelain");
+        gitInfo.needsCommit = status.trim().length > 0;
+        if (!gitInfo.needsCommit) {
+          try {
+            const ahead = await manager.execGit(refPath, `rev-list --count origin/${gitInfo.currentBranch}..HEAD`);
+            gitInfo.needsPush = parseInt(ahead) > 0;
+          } catch (error) {
+            gitInfo.needsPush = true;
+          }
+        }
+      } catch (error) {
+        gitInfo.hasRemote = false;
+        try {
+          let githubUsername;
+          try {
+            const credentialOutput = await manager.execGit(
+              refPath,
+              'credential fill <<< "protocol=https\nhost=github.com" | grep "^username=" | cut -d= -f2'
+            );
+            githubUsername = credentialOutput.trim();
+            if (!githubUsername) {
+              throw new Error("No username found in git credentials");
+            }
+          } catch (error2) {
+            try {
+              const remotes = await manager.execGit(refPath, "remote -v");
+              const match = remotes.match(/github\.com[:/]([^/]+)\//);
+              if (match) {
+                githubUsername = match[1];
+              } else {
+                throw new Error("No GitHub remotes found");
+              }
+            } catch (e) {
+              console.log("⚠️ Could not detect GitHub username automatically");
+              githubUsername = "user";
+            }
+          }
+          const repoName = refId.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+          const repoUrl = `https://github.com/${githubUsername}/${repoName}.git`;
+          try {
+            const credentialOutput = await manager.execGit(
+              refPath,
+              'credential fill <<< "protocol=https\nhost=github.com"'
+            );
+            const passwordMatch = credentialOutput.match(/password=(.+)/);
+            if (passwordMatch && passwordMatch[1]) {
+              const token = passwordMatch[1].trim();
+              const createRepoPayload = JSON.stringify({
+                name: repoName,
+                private: false,
+                auto_init: false
+              });
+              const { exec: exec2 } = await import("child_process");
+              const { promisify: promisify2 } = await import("util");
+              const execAsync2 = promisify2(exec2);
+              const curlCommand = `curl -s -w "\\n%{http_code}" -X POST                 -H "Authorization: token ${token}"                 -H "Accept: application/vnd.github.v3+json"                 -H "Content-Type: application/json"                 -d '${createRepoPayload}'                 https://api.github.com/user/repos`;
+              const { stdout: apiResponse } = await execAsync2(curlCommand, { cwd: refPath });
+              const lines = apiResponse.trim().split("\n");
+              const httpCode = lines[lines.length - 1];
+              if (httpCode === "201") {
+                console.log(`✅ Successfully created GitHub repository: ${repoName}`);
+              } else if (httpCode === "422") {
+                console.log(`ℹ️ Repository already exists: ${repoName}`);
+              } else {
+                console.log(`⚠️ GitHub API returned status ${httpCode}`);
+              }
+            }
+          } catch (error2) {
+            console.log(`⚠️ Could not create repository automatically: ${error2.message}`);
+          }
+          try {
+            await manager.execGit(refPath, `remote get-url origin`);
+            await manager.execGit(refPath, `remote set-url origin ${repoUrl}`);
+          } catch {
+            await manager.execGit(refPath, `remote add origin ${repoUrl}`);
+          }
+          gitInfo.remoteUrl = repoUrl;
+          gitInfo.hasRemote = true;
+          try {
+            await manager.execGit(refPath, `push -u origin ${gitInfo.currentBranch}`);
+            gitInfo.needsPush = false;
+            console.log(`✅ Pushed to repository: ${repoName}`);
+          } catch (pushError) {
+            gitInfo.needsPush = true;
+            console.log(`ℹ️ Push failed: ${pushError.message}`);
+          }
+        } catch (autoSetupError) {
+          console.log(`❌ Failed to auto-setup repository: ${autoSetupError.message}`);
+        }
+      }
+    } catch (error) {
+    }
+    if (gitInfo.hasRemote && (gitInfo.needsCommit || gitInfo.needsPush)) {
+      try {
+        if (gitInfo.needsCommit) {
+          await manager.execGit(refPath, "add .");
+          const commitMessage = `Deploy: ${(/* @__PURE__ */ new Date()).toISOString()}`;
+          await manager.execGit(refPath, `commit -m "${commitMessage}"`);
+        }
+        if (gitInfo.needsCommit || gitInfo.needsPush) {
+          await manager.execGit(refPath, `push -u origin ${gitInfo.currentBranch}`);
+          console.log(`✅ Pushed to remote: origin/${gitInfo.currentBranch}`);
+        }
+        gitInfo.needsCommit = false;
+        gitInfo.needsPush = false;
+      } catch (error) {
+        console.log(`⚠️ Push failed: ${error.message}`);
+        if (error.message.includes("Repository not found") || error.message.includes("remote repository")) {
+          console.log(`ℹ️ The GitHub repository needs to be created first`);
+          gitInfo.needsPush = true;
+        }
+      }
+    }
+    const envVars = [];
+    const envFilePath = path.join(refPath, ".env.local");
+    try {
+      const envContent = await promises.readFile(envFilePath, "utf8");
+      const lines = envContent.split("\n");
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed && !trimmed.startsWith("#") && trimmed.includes("=")) {
+          const [key, ...valueParts] = trimmed.split("=");
+          const value = valueParts.join("=").replace(/^["']|["']$/g, "");
+          envVars.push({ key: key.trim(), value: value.trim() });
+        }
+      }
+    } catch (error) {
+    }
+    let vercelImportUrl = "https://vercel.com/new";
+    if (gitInfo.hasRemote && gitInfo.remoteUrl) {
+      const repoMatch = gitInfo.remoteUrl.match(/github\.com[:/]([^/]+)\/([^/.]+)(\.git)?$/);
+      if (repoMatch) {
+        const [, owner, repo] = repoMatch;
+        vercelImportUrl = `https://vercel.com/new/import?s=https://github.com/${owner}/${repo}`;
+      } else {
+        const encodedRepoUrl = encodeURIComponent(gitInfo.remoteUrl);
+        vercelImportUrl = `https://vercel.com/new/import?s=${encodedRepoUrl}`;
+      }
+    }
+    let suggestedProjectName = refId;
+    if (gitInfo.remoteUrl) {
+      const match = gitInfo.remoteUrl.match(/\/([^\/]+?)(?:\.git)?$/);
+      if (match) {
+        suggestedProjectName = match[1];
+      }
+    }
+    const result = {
+      success: true,
+      refId,
+      git: gitInfo,
+      environmentVariables: envVars,
+      vercelImportUrl,
+      suggestedProjectName,
+      instructions: {
+        hasRemote: gitInfo.hasRemote,
+        nextSteps: gitInfo.hasRemote ? gitInfo.needsPush ? [
+          "GitHub remote is configured but push may have failed",
+          'If you see "Repository not found" error on Vercel:',
+          "1. Create the repository manually on GitHub",
+          "2. Run: git push -u origin main",
+          'Then click "Open Vercel Import" to deploy'
+        ] : [
+          "Your repository is ready and code is pushed!",
+          'Click "Open Vercel Import" below',
+          "Paste environment variables in Vercel",
+          "Deploy with one click!"
+        ] : [
+          "No GitHub remote configured",
+          "To deploy, you need to:",
+          "1. Create a GitHub repository",
+          "2. Add it as remote: git remote add origin <repo-url>",
+          "3. Push your code: git push -u origin main",
+          "Then try deploying again"
+        ]
+      }
+    };
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: {
+        code: "PREPARATION_FAILED",
+        message: error.message || "Failed to prepare deployment"
+      }
+    });
   }
 });
 const logger$4 = createLogger("ref-preview-routes");

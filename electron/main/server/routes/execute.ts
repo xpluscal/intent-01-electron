@@ -338,4 +338,84 @@ ${refs.create && refs.create.length > 0 ? refs.create.map(dir =>
   }
 });
 
+// Stop an execution
+router.post('/stop/:executionId', async (req, res, next) => {
+  try {
+    const { executionId } = req.params;
+    const { db, eventEmitter, claudeSDKManager, processManager } = req.app.locals;
+    
+    logger.info('Stopping execution', { executionId });
+    
+    // Check if execution exists
+    const execution = await db.get(
+      'SELECT * FROM executions WHERE id = ?',
+      [executionId]
+    );
+    
+    if (!execution) {
+      return res.status(404).json({
+        error: {
+          code: 'EXECUTION_NOT_FOUND',
+          message: `Execution ${executionId} not found`
+        }
+      });
+    }
+    
+    // Check if already completed or cancelled
+    if (execution.status === ExecutionStatus.COMPLETED || 
+        execution.status === ExecutionStatus.CANCELLED ||
+        execution.status === ExecutionStatus.ERROR) {
+      return res.json({
+        executionId,
+        status: execution.status,
+        message: 'Execution already stopped'
+      });
+    }
+    
+    // Stop the execution based on agent type
+    if (execution.agent_type === 'claude' && claudeSDKManager) {
+      await claudeSDKManager.stopExecution(executionId);
+    } else if (processManager) {
+      await processManager.stopProcess(executionId);
+    }
+    
+    // Update status to completed
+    await db.run(
+      'UPDATE executions SET status = ?, phase = ? WHERE id = ?',
+      [ExecutionStatus.COMPLETED, 'stopped', executionId]
+    );
+    
+    // Emit cancellation event
+    eventEmitter.emit(Events.LOG_ENTRY, {
+      executionId,
+      timestamp: new Date().toISOString(),
+      type: 'system',
+      content: JSON.stringify({
+        type: 'system',
+        subtype: 'stopped',
+        message: 'Execution stopped by user'
+      })
+    });
+    
+    // Emit process exit event to trigger git integration (same as when Claude completes normally)
+    eventEmitter.emit(Events.PROCESS_EXIT, { 
+      executionId, 
+      code: 0,  // Use code 0 to trigger git integration
+      signal: null
+    });
+    
+    logger.info('Execution stopped successfully', { executionId });
+    
+    res.json({
+      executionId,
+      status: ExecutionStatus.COMPLETED,
+      message: 'Execution stopped successfully'
+    });
+    
+  } catch (error) {
+    logger.error('Failed to stop execution', { executionId: req.params.executionId, error });
+    next(error);
+  }
+});
+
 export default router;
