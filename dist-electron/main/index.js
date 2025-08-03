@@ -4628,7 +4628,7 @@ This might be due to:
 
 Please check the logs above for more details. You can restart the preview using the UI controls.`;
           try {
-            await axios.post(`http://localhost:3010/message/${preview.execution_id}`, {
+            await axios.post(`http://localhost:3456/message/${preview.execution_id}`, {
               message: errorMessage
             });
             logger$a.info(`Sent exit notification to Claude for preview ${previewId}`);
@@ -5126,7 +5126,7 @@ Common solutions:
 - Install missing dependencies
 - Check import paths and module resolution
 - Verify configuration files`;
-      await axios.post(`http://localhost:3010/message/${executionId}`, {
+      await axios.post(`http://localhost:3456/message/${executionId}`, {
         message: errorMessage
       });
       execError.lastSent = Date.now();

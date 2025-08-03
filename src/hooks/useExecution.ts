@@ -76,6 +76,7 @@ IMPORTANT INSTRUCTIONS:
    - If building a UI, ensure it's viewable/testable as early as possible
 3. The user should be able to preview your progress throughout the development process.
 4. Make very stylish greaat clean design aesthieticque outputs and really smooth minimal motion experience to get an amazing result
+5. no need to run a dev server but you can run lint and build to test your build (the dev server runs automatically anyhow)
 
 Please read the content from the provided references and use that information to complete the user's request by making changes to the artifact "${artifactName}".`
 
