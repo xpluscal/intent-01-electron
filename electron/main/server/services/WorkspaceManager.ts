@@ -249,7 +249,33 @@ export class WorkspaceManager {
       }
 
       // Find the default refs directory
-      const defaultRefsPath = path.join(__dirname, '..', 'defaultRefs');
+      // Use import.meta.url to get the current file's URL, then derive the path
+      let defaultRefsPath: string;
+      
+      try {
+        // Try multiple possible locations
+        const possiblePaths = [
+          path.join(process.cwd(), 'electron', 'main', 'server', 'defaultRefs'),
+          path.join(process.cwd(), 'dist-electron', 'main', 'server', 'defaultRefs'),
+          path.join(process.cwd(), 'defaultRefs'),
+          path.join(path.dirname(this.workspacePath), 'defaultRefs')
+        ];
+        
+        for (const possiblePath of possiblePaths) {
+          if (await this.exists(possiblePath)) {
+            defaultRefsPath = possiblePath;
+            break;
+          }
+        }
+        
+        if (!defaultRefsPath) {
+          console.log('Default refs directory not found in any expected location');
+          return;
+        }
+      } catch (error) {
+        console.error('Error finding defaultRefs path:', error);
+        return;
+      }
       
       // Check if default refs exist
       if (!await this.exists(defaultRefsPath)) {
@@ -258,9 +284,35 @@ export class WorkspaceManager {
       }
 
       console.log('Initializing workspace with default references...');
+      console.log('Using defaultRefs from:', defaultRefsPath);
 
-      // Copy all default references
-      await this.copyDirectory(defaultRefsPath, refsDir);
+      // Copy all default references (subdirectories)
+      const entries = await fs.readdir(defaultRefsPath, { withFileTypes: true });
+      const copiedRefs: string[] = [];
+      
+      for (const entry of entries) {
+        const srcPath = path.join(defaultRefsPath, entry.name);
+        
+        if (entry.isDirectory()) {
+          // Copy reference directories to refs folder
+          const destPath = path.join(refsDir, entry.name);
+          await this.copyDirectory(srcPath, destPath);
+          copiedRefs.push(destPath);
+        } else if (entry.name === '.intent-projects.json') {
+          // Copy projects file to workspace root
+          const destPath = path.join(this.workspacePath, '.intent-projects.json');
+          await fs.copyFile(srcPath, destPath);
+        }
+      }
+      
+      // Initialize git in each copied reference directory
+      for (const refPath of copiedRefs) {
+        try {
+          await this.initializeGitRepo(refPath);
+        } catch (error) {
+          console.error(`Failed to initialize git in ${refPath}:`, error);
+        }
+      }
       
       console.log('Default references initialized successfully');
     } catch (error) {
@@ -287,6 +339,27 @@ export class WorkspaceManager {
         // Copy file
         await fs.copyFile(srcPath, destPath);
       }
+    }
+  }
+
+  private async initializeGitRepo(refPath: string): Promise<void> {
+    const { exec } = await import('child_process');
+    const { promisify } = await import('util');
+    const execAsync = promisify(exec);
+
+    try {
+      // Initialize git repository
+      await execAsync('git init', { cwd: refPath });
+      
+      // Add all files
+      await execAsync('git add .', { cwd: refPath });
+      
+      // Create initial commit
+      await execAsync('git commit -m "Initial commit"', { cwd: refPath });
+      
+      console.log(`Git initialized in ${path.basename(refPath)}`);
+    } catch (error) {
+      throw new Error(`Failed to initialize git in ${refPath}: ${error.message}`);
     }
   }
 }

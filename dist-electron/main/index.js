@@ -870,13 +870,54 @@ class WorkspaceManager {
       if (existingRefs.length > 0) {
         return;
       }
-      const defaultRefsPath = path.join(__dirname, "..", "defaultRefs");
+      let defaultRefsPath;
+      try {
+        const possiblePaths = [
+          path.join(process.cwd(), "electron", "main", "server", "defaultRefs"),
+          path.join(process.cwd(), "dist-electron", "main", "server", "defaultRefs"),
+          path.join(process.cwd(), "defaultRefs"),
+          path.join(path.dirname(this.workspacePath), "defaultRefs")
+        ];
+        for (const possiblePath of possiblePaths) {
+          if (await this.exists(possiblePath)) {
+            defaultRefsPath = possiblePath;
+            break;
+          }
+        }
+        if (!defaultRefsPath) {
+          console.log("Default refs directory not found in any expected location");
+          return;
+        }
+      } catch (error) {
+        console.error("Error finding defaultRefs path:", error);
+        return;
+      }
       if (!await this.exists(defaultRefsPath)) {
         console.log("Default refs directory not found, skipping initialization");
         return;
       }
       console.log("Initializing workspace with default references...");
-      await this.copyDirectory(defaultRefsPath, refsDir);
+      console.log("Using defaultRefs from:", defaultRefsPath);
+      const entries = await promises.readdir(defaultRefsPath, { withFileTypes: true });
+      const copiedRefs = [];
+      for (const entry of entries) {
+        const srcPath = path.join(defaultRefsPath, entry.name);
+        if (entry.isDirectory()) {
+          const destPath = path.join(refsDir, entry.name);
+          await this.copyDirectory(srcPath, destPath);
+          copiedRefs.push(destPath);
+        } else if (entry.name === ".intent-projects.json") {
+          const destPath = path.join(this.workspacePath, ".intent-projects.json");
+          await promises.copyFile(srcPath, destPath);
+        }
+      }
+      for (const refPath of copiedRefs) {
+        try {
+          await this.initializeGitRepo(refPath);
+        } catch (error) {
+          console.error(`Failed to initialize git in ${refPath}:`, error);
+        }
+      }
       console.log("Default references initialized successfully");
     } catch (error) {
       console.error("Error initializing default refs:", error);
@@ -893,6 +934,19 @@ class WorkspaceManager {
       } else {
         await promises.copyFile(srcPath, destPath);
       }
+    }
+  }
+  async initializeGitRepo(refPath) {
+    const { exec: exec2 } = await import("child_process");
+    const { promisify: promisify2 } = await import("util");
+    const execAsync2 = promisify2(exec2);
+    try {
+      await execAsync2("git init", { cwd: refPath });
+      await execAsync2("git add .", { cwd: refPath });
+      await execAsync2('git commit -m "Initial commit"', { cwd: refPath });
+      console.log(`Git initialized in ${path.basename(refPath)}`);
+    } catch (error) {
+      throw new Error(`Failed to initialize git in ${refPath}: ${error.message}`);
     }
   }
 }
@@ -8645,8 +8699,8 @@ class IntentServer {
   }
 }
 createRequire(import.meta.url);
-const __dirname$1 = path.dirname(fileURLToPath(import.meta.url));
-process.env.APP_ROOT = path.join(__dirname$1, "../..");
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+process.env.APP_ROOT = path.join(__dirname, "../..");
 const MAIN_DIST = path.join(process.env.APP_ROOT, "dist-electron");
 const RENDERER_DIST = path.join(process.env.APP_ROOT, "dist");
 const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL;
@@ -8658,7 +8712,7 @@ if (!app.requestSingleInstanceLock()) {
   process.exit(0);
 }
 let win = null;
-const preload = path.join(__dirname$1, "../preload/index.mjs");
+const preload = path.join(__dirname, "../preload/index.mjs");
 const indexHtml = path.join(RENDERER_DIST, "index.html");
 let intentServer = null;
 async function createWindow() {

@@ -2,7 +2,7 @@
   "version": "1.0",
   "reference": {
     "id": "project-overview",
-    "name": "EcoTrack Project Overview",
+    "name": "Project Overview",
     "description": "Company vision, product features, and business strategy for EcoTrack sustainability platform",
     "type": "reference",
     "subtype": "document",

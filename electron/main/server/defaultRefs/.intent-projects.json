@@ -1,0 +1,20 @@
+{
+  "version": "1.0",
+  "projects": {
+    "ecotrack": {
+      "id": "ecotrack",
+      "name": "EcoTrack (Demo)",
+      "description": "Analytics platform for tracking and reducing carbon emissions",
+      "emoji": "🌎",
+      "created": "2024-01-01T00:00:00.000Z",
+      "modified": "2024-01-01T00:00:00.000Z",
+      "refs": [
+        "project-overview",
+        "branding-guidelines",
+        "code-guidelines",
+        "design-system",
+        "logo"
+      ]
+    }
+  }
+}
