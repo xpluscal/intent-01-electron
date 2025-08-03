@@ -453,9 +453,18 @@ function ExecutionTabContent({
           setShowMergeDialog(false)
           setMergeResult(null)
         }, 2000)
+      } else {
+        // Show error toast for API errors
+        toast.error('Merge failed', {
+          description: result.error || 'Failed to merge execution branch'
+        })
       }
     } catch (error) {
       setMergeResult({ success: false, error: error.message })
+      // Show error toast for exceptions
+      toast.error('Merge failed', {
+        description: error.message || 'An unexpected error occurred'
+      })
     } finally {
       setMerging(false)
     }
