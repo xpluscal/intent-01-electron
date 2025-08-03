@@ -1157,4 +1157,188 @@ router.post('/deploy/prepare/:refId', async (req, res, next) => {
   }
 });
 
+// Import artifact from GitHub URL
+router.post('/refs/import-github', async (req, res, next) => {
+  try {
+    const { githubUrl, refId: customRefId, projectId } = req.body;
+    const manager = getRefManager(req);
+    
+    // Validate GitHub URL
+    const githubUrlPattern = /^https?:\/\/(www\.)?github\.com\/[\w-]+\/[\w.-]+/;
+    if (!githubUrl || !githubUrlPattern.test(githubUrl)) {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_GITHUB_URL',
+          message: 'Please provide a valid GitHub repository URL'
+        }
+      });
+    }
+    
+    // Extract repository name from URL
+    const urlMatch = githubUrl.match(/github\.com\/[\w-]+\/([\w.-]+?)(\.git)?$/);
+    if (!urlMatch) {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_GITHUB_URL',
+          message: 'Could not extract repository name from URL'
+        }
+      });
+    }
+    
+    const repoName = urlMatch[1];
+    const refId = customRefId || repoName.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+    
+    // Check if ref already exists
+    if (await manager.refExists(refId)) {
+      return res.status(400).json({
+        error: {
+          code: 'REF_EXISTS',
+          message: `Reference '${refId}' already exists`
+        }
+      });
+    }
+    
+    // Create reference directory
+    const refsDir = path.join(req.app.locals.workspace.workspace, 'refs');
+    const refPath = path.join(refsDir, refId);
+    
+    try {
+      await fs.mkdir(refPath, { recursive: true });
+    } catch (error) {
+      logger.error(`Failed to create directory for ref ${refId}:`, error);
+      throw new Error('Failed to create reference directory');
+    }
+    
+    // Clone the repository
+    logger.info(`Cloning repository ${githubUrl} to ${refPath}`);
+    try {
+      // Clone with depth 1 for faster clone
+      await manager.execGit(refsDir, `clone --depth 1 ${githubUrl} ${refId}`);
+      logger.info(`Successfully cloned repository to ${refId}`);
+      
+      // Remove the .git/shallow file to allow full git operations
+      try {
+        await fs.unlink(path.join(refPath, '.git', 'shallow'));
+      } catch (error) {
+        // Ignore if file doesn't exist
+      }
+      
+      // Fetch full history
+      try {
+        await manager.execGit(refPath, 'fetch --unshallow');
+      } catch (error) {
+        // Ignore if already unshallow
+      }
+    } catch (error) {
+      // Clean up directory on failure
+      try {
+        await fs.rm(refPath, { recursive: true, force: true });
+      } catch (cleanupError) {
+        logger.error('Failed to cleanup after clone error:', cleanupError);
+      }
+      
+      logger.error(`Failed to clone repository:`, error);
+      return res.status(400).json({
+        error: {
+          code: 'CLONE_FAILED',
+          message: error.message.includes('Repository not found') 
+            ? 'Repository not found or is private. Make sure the URL is correct and the repository is public.'
+            : `Failed to clone repository: ${error.message}`
+        }
+      });
+    }
+    
+    // Detect project type based on files
+    let subtype = 'code';
+    try {
+      const files = await fs.readdir(refPath);
+      
+      // Check for common project files
+      if (files.includes('package.json') || files.includes('tsconfig.json')) {
+        subtype = 'code';
+      } else if (files.some(f => f.endsWith('.md') || f.endsWith('.mdx'))) {
+        // Check if it's primarily documentation
+        const codeFiles = files.filter(f => 
+          f.endsWith('.js') || f.endsWith('.ts') || 
+          f.endsWith('.jsx') || f.endsWith('.tsx') ||
+          f.endsWith('.py') || f.endsWith('.java')
+        );
+        if (codeFiles.length === 0) {
+          subtype = 'text';
+        }
+      } else if (files.some(f => 
+        f.endsWith('.png') || f.endsWith('.jpg') || 
+        f.endsWith('.svg') || f.endsWith('.gif')
+      )) {
+        subtype = 'media-artifact';
+      }
+    } catch (error) {
+      logger.warn('Could not detect project type, defaulting to code');
+    }
+    
+    // Create .intent-ref.json metadata
+    const metadata = {
+      version: '1.0',
+      reference: {
+        id: refId,
+        name: repoName,
+        description: `Imported from GitHub: ${githubUrl}`,
+        type: 'artifact',
+        subtype,
+        projects: projectId ? [projectId] : [],
+        created: new Date().toISOString(),
+        modified: new Date().toISOString()
+      }
+    };
+    
+    const metadataPath = path.join(refPath, '.intent-ref.json');
+    await fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2));
+    
+    // Create initial commit for the import
+    try {
+      await manager.execGit(refPath, 'add .intent-ref.json');
+      await manager.execGit(refPath, 'commit -m "Add Intent metadata"');
+    } catch (error) {
+      logger.warn('Could not commit metadata file:', error);
+    }
+    
+    // Add to project if specified
+    if (projectId) {
+      const projectsPath = path.join(req.app.locals.workspace.workspace, '.intent-projects.json');
+      try {
+        const projectsData = await fs.readFile(projectsPath, 'utf8');
+        const projects = JSON.parse(projectsData);
+        
+        if (projects.projects && projects.projects[projectId]) {
+          if (!projects.projects[projectId].refs) {
+            projects.projects[projectId].refs = [];
+          }
+          if (!projects.projects[projectId].refs.includes(refId)) {
+            projects.projects[projectId].refs.push(refId);
+            projects.projects[projectId].modified = new Date().toISOString();
+            await fs.writeFile(projectsPath, JSON.stringify(projects, null, 2));
+          }
+        }
+      } catch (error) {
+        logger.warn(`Could not add ref to project ${projectId}:`, error);
+      }
+    }
+    
+    res.json({
+      success: true,
+      ref: {
+        id: refId,
+        name: repoName,
+        type: 'artifact',
+        subtype,
+        githubUrl
+      }
+    });
+    
+  } catch (error) {
+    logger.error('GitHub import error:', error);
+    next(error);
+  }
+});
+
 export default router;
