@@ -176,7 +176,7 @@ Please read the content from the provided references and use that information to
     
     eventSource.addEventListener('end', (event) => {
       try {
-        const data = JSON.parse(event.data)
+        JSON.parse(event.data)
         // Execution stream ended
         // The stream will be closed by the server, just clean up our reference
         eventSourcesRef.current.delete(executionId)

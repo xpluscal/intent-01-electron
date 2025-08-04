@@ -94,9 +94,9 @@ export function VercelOAuthDialog({
       }
     } catch (error) {
       console.error('Failed to initiate OAuth:', error)
-      setAuthError(error.message || 'Failed to start authentication')
+      setAuthError((error as Error).message || 'Failed to start authentication')
       setAuthStep('error')
-      onError(error.message || 'Failed to start authentication')
+      onError((error as Error).message || 'Failed to start authentication')
     } finally {
       setLoading(false)
     }

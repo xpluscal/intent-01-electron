@@ -183,7 +183,7 @@ export function CreateArtifactDialog({
       onOpenChange(false)
     } catch (error) {
       console.error('Failed to create artifact:', error)
-      toast.error(error.message || 'Failed to create artifact')
+      toast.error((error as Error).message || 'Failed to create artifact')
     } finally {
       setCreating(false)
     }

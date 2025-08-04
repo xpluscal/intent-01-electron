@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, ipcMain } from 'electron'
+import { app, BrowserWindow, shell, ipcMain, protocol, safeStorage } from 'electron'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
@@ -10,6 +10,18 @@ import { IntentServer } from './serverIntegration'
 
 const require = createRequire(import.meta.url)
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+// Fix PATH for GUI-launched apps on macOS
+// This ensures npx, git, and other CLI tools are available
+if (process.platform === 'darwin' && !process.env.VITE_DEV_SERVER_URL) {
+  // Use dynamic import for ESM compatibility
+  import('fix-path').then(module => {
+    const fixPath = module.default || module
+    fixPath()
+  }).catch(err => {
+    console.error('Failed to load fix-path:', err)
+  })
+}
 
 // The built directory structure
 //
@@ -37,6 +49,15 @@ if (os.release().startsWith('6.1')) app.disableHardwareAcceleration()
 // Set application name for Windows 10+ notifications
 if (process.platform === 'win32') app.setAppUserModelId(app.getName())
 
+// Register custom protocol
+if (process.defaultApp) {
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient('intent', process.execPath, [path.resolve(process.argv[1])])
+  }
+} else {
+  app.setAsDefaultProtocolClient('intent')
+}
+
 if (!app.requestSingleInstanceLock()) {
   app.quit()
   process.exit(0)
@@ -48,6 +69,48 @@ const indexHtml = path.join(RENDERER_DIST, 'index.html')
 
 // Initialize Intent server
 let intentServer: IntentServer | null = null
+
+// Handle protocol URL
+function handleProtocolUrl(url: string) {
+  console.log('Received protocol URL:', url)
+  
+  // Parse the URL to extract the token
+  if (url.startsWith('intent://auth/callback')) {
+    const urlObj = new URL(url.replace('intent://', 'http://'))
+    const token = urlObj.searchParams.get('token')
+    
+    console.log('Protocol handler - Token:', token)
+    console.log('Protocol handler - Window available:', !!win)
+    console.log('Protocol handler - Window ID:', win?.id)
+    console.log('Protocol handler - IntentServer window ID:', intentServer?.mainWindow?.id)
+    
+    if (token && win) {
+      // Focus and show the window
+      if (win.isMinimized()) win.restore()
+      win.focus()
+      
+      // Ensure the renderer is ready before sending the token
+      const sendToken = () => {
+        win.webContents.send('auth:token-received', token)
+        console.log('Protocol handler - Token sent to renderer')
+      }
+      
+      // Check if the page is loaded
+      if (win.webContents.isLoading()) {
+        console.log('Protocol handler - Waiting for page to load...')
+        win.webContents.once('did-finish-load', () => {
+          console.log('Protocol handler - Page loaded, sending token')
+          sendToken()
+        })
+      } else {
+        // Page is already loaded, send immediately
+        sendToken()
+      }
+    } else {
+      console.error('Protocol handler - Missing token or window', { token: !!token, win: !!win })
+    }
+  }
+}
 
 async function createWindow() {
   win = new BrowserWindow({
@@ -65,13 +128,19 @@ async function createWindow() {
       // contextIsolation: false,
     },
   })
+  
+  // Make window available to server for auth callbacks
+  if (intentServer) {
+    intentServer.setMainWindow(win)
+  }
 
   if (VITE_DEV_SERVER_URL) { // #298
     win.loadURL(VITE_DEV_SERVER_URL)
     // Open devTool if the app is not packaged
     // win.webContents.openDevTools()
   } else {
-    win.loadFile(indexHtml)
+    // In production, load from the Express server to support cookies for Clerk
+    win.loadURL('http://localhost:3456')
   }
 
   // Test actively push message to the Electron-Renderer
@@ -128,7 +197,13 @@ app.on('window-all-closed', async () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-app.on('second-instance', () => {
+app.on('second-instance', (event, commandLine, workingDirectory) => {
+  // Handle protocol URL
+  const protocolUrl = commandLine.find(arg => arg.startsWith('intent://'))
+  if (protocolUrl) {
+    handleProtocolUrl(protocolUrl)
+  }
+  
   if (win) {
     // Focus on the main window if the user tried to open another
     if (win.isMinimized()) win.restore()
@@ -145,6 +220,12 @@ app.on('activate', () => {
   }
 })
 
+// Handle protocol URL on macOS
+app.on('open-url', (event, url) => {
+  event.preventDefault()
+  handleProtocolUrl(url)
+})
+
 // New window example arg: new windows url
 ipcMain.handle('open-win', (_, arg) => {
   const childWindow = new BrowserWindow({
@@ -158,7 +239,8 @@ ipcMain.handle('open-win', (_, arg) => {
   if (VITE_DEV_SERVER_URL) {
     childWindow.loadURL(`${VITE_DEV_SERVER_URL}#${arg}`)
   } else {
-    childWindow.loadFile(indexHtml, { hash: arg })
+    // In production, load from the Express server to support cookies for Clerk
+    childWindow.loadURL(`http://localhost:3456#${arg}`)
   }
 })
 
@@ -168,6 +250,96 @@ ipcMain.handle('intent-server:status', () => {
     running: intentServer?.isServerRunning() || false,
     port: intentServer?.getPort() || null
   }
+})
+
+// Authentication handlers
+ipcMain.handle('auth:store-token', async (event, token: string) => {
+  try {
+    if (!safeStorage.isEncryptionAvailable()) {
+      // Fallback to plain storage if encryption is not available
+      const { promises: fs } = await import('node:fs')
+      const userDataPath = app.getPath('userData')
+      const tokenPath = path.join(userDataPath, '.auth-token')
+      await fs.writeFile(tokenPath, token, 'utf-8')
+      return { success: true }
+    }
+    
+    // Encrypt and store the token
+    const encrypted = safeStorage.encryptString(token)
+    const { promises: fs } = await import('node:fs')
+    const userDataPath = app.getPath('userData')
+    const tokenPath = path.join(userDataPath, '.auth-token')
+    await fs.writeFile(tokenPath, encrypted)
+    return { success: true }
+  } catch (error) {
+    console.error('Failed to store auth token:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('auth:get-token', async () => {
+  try {
+    const { promises: fs } = await import('node:fs')
+    const userDataPath = app.getPath('userData')
+    const tokenPath = path.join(userDataPath, '.auth-token')
+    
+    // Check if token file exists
+    try {
+      await fs.access(tokenPath)
+    } catch {
+      return { success: false, token: null }
+    }
+    
+    const encrypted = await fs.readFile(tokenPath)
+    
+    if (!safeStorage.isEncryptionAvailable()) {
+      // Return plain token if encryption is not available
+      return { success: true, token: encrypted.toString('utf-8') }
+    }
+    
+    // Decrypt and return the token
+    const token = safeStorage.decryptString(encrypted)
+    return { success: true, token }
+  } catch (error) {
+    console.error('Failed to retrieve auth token:', error)
+    return { success: false, token: null, error: error.message }
+  }
+})
+
+ipcMain.handle('auth:clear-token', async () => {
+  try {
+    const { promises: fs } = await import('node:fs')
+    const userDataPath = app.getPath('userData')
+    const tokenPath = path.join(userDataPath, '.auth-token')
+    
+    await fs.unlink(tokenPath).catch(() => {})
+    return { success: true }
+  } catch (error) {
+    console.error('Failed to clear auth token:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('auth:open-login', async () => {
+  // Debug logging for environment variables
+  console.log('=== AUTH HOST DEBUG ===')
+  console.log('app.isPackaged:', app.isPackaged)
+  console.log('import.meta.env:', import.meta.env)
+  console.log('import.meta.env.MAIN_VITE_AUTH_HOST:', import.meta.env?.MAIN_VITE_AUTH_HOST)
+  console.log('process.env.AUTH_HOST:', process.env.AUTH_HOST)
+  console.log('process.env.MAIN_VITE_AUTH_HOST:', process.env.MAIN_VITE_AUTH_HOST)
+  console.log('process.env.NODE_ENV:', process.env.NODE_ENV)
+  console.log('======================')
+  
+  // Get auth host from environment variables
+  // In production, this should be replaced by Vite during build
+  const authHost = import.meta.env.MAIN_VITE_AUTH_HOST || process.env.MAIN_VITE_AUTH_HOST || process.env.AUTH_HOST || 'http://localhost:3050'
+  console.log('Final authHost:', authHost)
+  
+  // Open the auth webapp in the default browser
+  shell.openExternal(authHost)
+  
+  return { success: true }
 })
 
 // File operation handlers

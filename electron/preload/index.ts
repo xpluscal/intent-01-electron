@@ -54,6 +54,22 @@ contextBridge.exposeInMainWorld('intentAPI', {
   mergeExecutionBranch: (refId: string, executionId: string) => ipcRenderer.invoke('intent:merge-execution-branch', refId, executionId),
 })
 
+// Expose Auth API
+contextBridge.exposeInMainWorld('authAPI', {
+  storeToken: (token: string) => ipcRenderer.invoke('auth:store-token', token),
+  getToken: () => ipcRenderer.invoke('auth:get-token'),
+  clearToken: () => ipcRenderer.invoke('auth:clear-token'),
+  openLogin: () => ipcRenderer.invoke('auth:open-login'),
+  
+  // Listen for token received from protocol URL
+  onTokenReceived: (callback: (token: string) => void) => {
+    ipcRenderer.on('auth:token-received', (event, token) => callback(token))
+  },
+  removeTokenListener: () => {
+    ipcRenderer.removeAllListeners('auth:token-received')
+  }
+})
+
 // --------- Preload scripts loading ---------
 function domReady(condition: DocumentReadyState[] = ['complete', 'interactive']) {
   return new Promise(resolve => {
@@ -174,13 +190,16 @@ function useLoading() {
   oStyle.innerHTML = styleContent
   oDiv.className = 'app-loading-wrap'
   oDiv.innerHTML = `
-    <div class="retro-loader">╦╔╗╔╔╦╗╔═╗╔╗╔╔╦╗ ╔═╗╦
-║║║║ ║ ╠╣ ║║║ ║  ║ ║║
-╩╝╚╝ ╩ ╚═╝╝╚╝ ╩  ╚═╝╩</div>
-    <div class="loading-text">INITIALIZING</div>
+    <div class="retro-loader" style="font-size: 0.7rem; line-height: 0.8rem; color: var(--primary);">██╗███╗   ██╗████████╗███████╗███╗   ██╗████████╗    ██████╗  ██╗
+██║████╗  ██║╚══██╔══╝██╔════╝████╗  ██║╚══██╔══╝   ██╔═████╗███║
+██║██╔██╗ ██║   ██║   █████╗  ██╔██╗ ██║   ██║█████╗██║██╔██║╚██║
+██║██║╚██╗██║   ██║   ██╔══╝  ██║╚██╗██║   ██║╚════╝████╔╝██║ ██║
+██║██║ ╚████║   ██║   ███████╗██║ ╚████║   ██║      ╚██████╔╝ ██║
+╚═╝╚═╝  ╚═══╝   ╚═╝   ╚══════╝╚═╝  ╚═══╝   ╚═╝       ╚═════╝  ╚═╝</div>
+    <div class="loading-text">Initializing...</div>
     <div class="loading-footer">
       <div>INTENT-01</div>
-      <div>© 2025 RESONANCE LABS</div>
+      <div>RESONANCE LABS</div>
     </div>
   `
 

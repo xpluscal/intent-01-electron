@@ -1,4 +1,4 @@
-import { app as electronApp } from 'electron'
+import { app as electronApp, BrowserWindow } from 'electron'
 import path from 'node:path'
 import { EventEmitter } from 'node:events'
 import { fileURLToPath } from 'node:url'
@@ -34,6 +34,7 @@ import cleanupRoutes from './server/routes/cleanup.js'
 import resourcesRoutes from './server/routes/resources.js'
 import monitoringRoutes from './server/routes/monitoring.js'
 import executionFilesRoutes from './server/routes/executionFiles.js'
+import authRoutes from './server/routes/auth.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -48,10 +49,19 @@ export class IntentServer {
   private eventEmitter: EventEmitter
   private isRunning: boolean = false
   private port: number
+  private _mainWindow: BrowserWindow | null = null
 
   constructor(options: ServerOptions = {}) {
     this.port = options.port || 3000
     this.eventEmitter = new EventEmitter()
+  }
+  
+  setMainWindow(window: BrowserWindow) {
+    this._mainWindow = window
+  }
+  
+  get mainWindow() {
+    return this._mainWindow
   }
 
   async start(): Promise<void> {
@@ -108,10 +118,11 @@ export class IntentServer {
       this.db = new Database(dbPath)
       await this.db.initialize()
       
-      // Make db and eventEmitter available to routes
+      // Make db, eventEmitter, and server instance available to routes
       app.locals.db = this.db
       app.locals.eventEmitter = this.eventEmitter
       app.locals.config = config
+      app.locals.server = this
       
       // Initialize managers
       app.locals.processManager = new ProcessManager(this.db, config, this.eventEmitter)
@@ -138,8 +149,23 @@ export class IntentServer {
       // Start resource monitoring
       app.locals.resourceMonitor.start()
 
+      // Serve static files from the React build directory in production
+      if (electronApp.isPackaged) {
+        const staticPath = path.join(process.env.APP_ROOT || '', 'dist')
+        console.log('Serving static files from:', staticPath)
+        
+        // Serve static assets
+        app.use(express.static(staticPath))
+        
+        // Handle client-side routing - serve index.html for all non-API routes
+        app.get(/^(?!\/api|\/execute|\/status|\/message|\/logs|\/files|\/preview|\/refs|\/cleanup|\/resources|\/monitoring|\/auth|\/health).*/, (req, res) => {
+          res.sendFile(path.join(staticPath, 'index.html'))
+        })
+      }
+
       // Set up routes
 
+      app.use('/', authRoutes)
       app.use('/', executeRoutes)
       app.use('/', statusRoutes)
       app.use('/', messageRoutes)

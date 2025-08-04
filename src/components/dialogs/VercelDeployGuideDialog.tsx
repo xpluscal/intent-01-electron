@@ -83,7 +83,7 @@ export function VercelDeployGuideDialog({
       }
     } catch (error) {
       console.error('Failed to prepare deployment:', error)
-      setError(error.message || 'Failed to prepare deployment')
+      setError((error as Error).message || 'Failed to prepare deployment')
     } finally {
       setLoading(false)
     }

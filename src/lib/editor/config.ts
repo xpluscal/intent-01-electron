@@ -1,6 +1,6 @@
 import { Schema } from 'prosemirror-model'
 import { EditorView } from 'prosemirror-view'
-import { EditorState, Transaction } from 'prosemirror-state'
+import { Transaction } from 'prosemirror-state'
 import { textblockTypeInputRule } from 'prosemirror-inputrules'
 
 // Define a schema with markdown-like nodes

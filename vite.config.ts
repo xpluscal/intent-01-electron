@@ -1,18 +1,21 @@
 import { rmSync } from 'node:fs'
 import path from 'node:path'
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import electron from 'vite-plugin-electron/simple'
 import pkg from './package.json'
 
 // https://vitejs.dev/config/
-export default defineConfig(({ command }) => {
+export default defineConfig(({ command, mode }) => {
   rmSync('dist-electron', { recursive: true, force: true })
 
   const isServe = command === 'serve'
   const isBuild = command === 'build'
   const sourcemap = isServe || !!process.env.VSCODE_DEBUG
+  
+  // Load env file based on `mode` in the current working directory.
+  process.env = Object.assign(process.env, loadEnv(mode, process.cwd(), ''))
 
   return {
     plugins: [
@@ -40,6 +43,9 @@ export default defineConfig(({ command }) => {
                   format: 'es',
                 },
               },
+            },
+            define: {
+              'import.meta.env.MAIN_VITE_AUTH_HOST': JSON.stringify(process.env.MAIN_VITE_AUTH_HOST || 'http://localhost:3050'),
             },
           },
         },

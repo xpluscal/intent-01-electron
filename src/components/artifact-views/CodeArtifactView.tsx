@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Button } from '../ui/button'
 import { Badge } from '../ui/badge'
-import { Code2, X, BookOpen, Play, Square, Loader2, ExternalLink, AlertCircle, Maximize2, Minimize2, RefreshCw, Send, RotateCw, GitMerge } from 'lucide-react'
+import { Code2, X, Play, Square, Loader2, ExternalLink, AlertCircle, Maximize2, Minimize2, RefreshCw, Send, RotateCw, GitMerge } from 'lucide-react'
 import { projectManager } from '@/lib/projectManager'
 import { Reference } from '@/types/projects'
 import { usePreview } from '@/hooks/usePreview'
@@ -32,7 +32,7 @@ interface CodeArtifactViewProps {
 
 export function CodeArtifactView({ refId, refName, onClose }: CodeArtifactViewProps) {
   const [readReferences, setReadReferences] = useState<Reference[]>([])
-  const [loading, setLoading] = useState(true)
+  const [, setLoading] = useState(true)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [iframeKey, setIframeKey] = useState(0)
   const [activeTab, setActiveTab] = useState('current')
@@ -415,7 +415,7 @@ export function CodeArtifactView({ refId, refName, onClose }: CodeArtifactViewPr
       </div>
     </TabsContent>
         {/* Execution Tabs */}
-        {executionList.map((execution, index) => {
+        {executionList.map((execution) => {
           const execLogs = executionLogs.get(execution.id) || []
           const execMessage = executionMessages.get(execution.id) || ''
           
@@ -472,7 +472,7 @@ function ExecutionTabContent({
   onMessageChange: (value: string) => void
   onSendMessage: () => void
 }) {
-  const { status: previewStatus, loading: previewLoading, startPreview, stopPreview, restartPreview, checkStatus } = useExecutionPreview(execution.id, refId, isActive)
+  const { status: previewStatus, loading: previewLoading, startPreview, stopPreview, restartPreview } = useExecutionPreview(execution.id, refId, isActive)
   const [showMergeDialog, setShowMergeDialog] = useState(false)
   const [merging, setMerging] = useState(false)
   const [mergeResult, setMergeResult] = useState<{ success: boolean; message?: string; error?: string } | null>(null)
@@ -499,10 +499,10 @@ function ExecutionTabContent({
         })
       }
     } catch (error) {
-      setMergeResult({ success: false, error: error.message })
+      setMergeResult({ success: false, error: (error as Error).message })
       // Show error toast for exceptions
       toast.error('Merge failed', {
-        description: error.message || 'An unexpected error occurred'
+        description: (error as Error).message || 'An unexpected error occurred'
       })
     } finally {
       setMerging(false)
@@ -560,13 +560,13 @@ function ExecutionTabContent({
                     if (!response.ok) {
                       throw new Error('Failed to stop execution')
                     }
-                    const result = await response.json()
+                    await response.json()
                     toast.success('Execution stopped', {
                       description: `Execution ${execution.id} has been cancelled.`
                     })
                   } catch (error) {
                     toast.error('Failed to stop execution', {
-                      description: error.message
+                      description: (error as Error).message
                     })
                   }
                 }}

@@ -1,5 +1,5 @@
 import { ReactNode, useState } from 'react'
-import { UserButton } from '@clerk/clerk-react'
+// import { UserButton } from '@clerk/clerk-react'
 import { Button } from '../ui/button'
 import { Settings } from 'lucide-react'
 import { SettingsModal } from '../settings/SettingsModal'
@@ -16,11 +16,14 @@ export function SimplifiedLayout({ children }: SimplifiedLayoutProps) {
       {/* Top Navigation */}
       <header className="h-12 border-b flex items-center justify-between px-4">
         <div className="flex items-center gap-4">
-          <div className="font-mono text-[9px] leading-[10px] text-primary select-none">
+          <div className="font-mono text-[3px] leading-[4px] text-primary select-none">
             <pre className="whitespace-pre">
-{`╦╔╗╔╔╦╗╔═╗╔╗╔╔╦╗ ╔═╗╦
-║║║║ ║ ╠╣ ║║║ ║  ║ ║║
-╩╝╚╝ ╩ ╚═╝╝╚╝ ╩  ╚═╝╩`}
+{`██╗███╗   ██╗████████╗███████╗███╗   ██╗████████╗    ██████╗  ██╗
+██║████╗  ██║╚══██╔══╝██╔════╝████╗  ██║╚══██╔══╝   ██╔═████╗███║
+██║██╔██╗ ██║   ██║   █████╗  ██╔██╗ ██║   ██║█████╗██║██╔██║╚██║
+██║██║╚██╗██║   ██║   ██╔══╝  ██║╚██╗██║   ██║╚════╝████╔╝██║ ██║
+██║██║ ╚████║   ██║   ███████╗██║ ╚████║   ██║      ╚██████╔╝ ██║
+╚═╝╚═╝  ╚═══╝   ╚═╝   ╚══════╝╚═╝  ╚═══╝   ╚═╝       ╚═════╝  ╚═╝`}
             </pre>
           </div>
         </div>
@@ -33,7 +36,7 @@ export function SimplifiedLayout({ children }: SimplifiedLayoutProps) {
           >
             <Settings className="h-4 w-4" />
           </Button>
-          <UserButton afterSignOutUrl="/" />
+          {/* <UserButton afterSignOutUrl="/" /> */}
         </div>
       </header>
 

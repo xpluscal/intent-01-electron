@@ -42,7 +42,7 @@ export function ProjectFileTree({
   const [projectRefs, setProjectRefs] = useState<Map<string, Reference[]>>(new Map())
   const [draggedNode, setDraggedNode] = useState<ProjectFileNode | null>(null)
   const [dragOverNode, setDragOverNode] = useState<string | null>(null)
-  const [unassignedRefs, setUnassignedRefs] = useState<Reference[]>([])
+  const [, setUnassignedRefs] = useState<Reference[]>([])
   const [hoveredArtifact, setHoveredArtifact] = useState<string | null>(null)
   const [artifactReadRefs, setArtifactReadRefs] = useState<Set<string>>(new Set())
 
@@ -597,7 +597,6 @@ export function ProjectFileTree({
     const isExpanded = expandedNodes.has(node.path)
     const isSelected = selectedFile === node.path
     const isArtifactSelected = node.nodeType === 'reference' && node.metadata?.refType === 'artifact' && node.refId === selectedArtifact
-    const isClickable = node.type === 'file' || (node.type === 'directory' && !node.path.startsWith('project:'))
     const isDragOver = dragOverNode === node.path
     const isHighlighted = hoveredArtifact && node.refId && artifactReadRefs.has(node.refId)
 
