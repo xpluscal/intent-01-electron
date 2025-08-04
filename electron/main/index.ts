@@ -67,9 +67,35 @@ function handleProtocolUrl(url: string) {
     const urlObj = new URL(url.replace('intent://', 'http://'))
     const token = urlObj.searchParams.get('token')
     
+    console.log('Protocol handler - Token:', token)
+    console.log('Protocol handler - Window available:', !!win)
+    console.log('Protocol handler - Window ID:', win?.id)
+    console.log('Protocol handler - IntentServer window ID:', intentServer?.mainWindow?.id)
+    
     if (token && win) {
-      // Send the token to the renderer process
-      win.webContents.send('auth:token-received', token)
+      // Focus and show the window
+      if (win.isMinimized()) win.restore()
+      win.focus()
+      
+      // Ensure the renderer is ready before sending the token
+      const sendToken = () => {
+        win.webContents.send('auth:token-received', token)
+        console.log('Protocol handler - Token sent to renderer')
+      }
+      
+      // Check if the page is loaded
+      if (win.webContents.isLoading()) {
+        console.log('Protocol handler - Waiting for page to load...')
+        win.webContents.once('did-finish-load', () => {
+          console.log('Protocol handler - Page loaded, sending token')
+          sendToken()
+        })
+      } else {
+        // Page is already loaded, send immediately
+        sendToken()
+      }
+    } else {
+      console.error('Protocol handler - Missing token or window', { token: !!token, win: !!win })
     }
   }
 }

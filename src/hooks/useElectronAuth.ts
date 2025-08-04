@@ -70,7 +70,10 @@ export function useElectronAuth() {
   // Listen for token from protocol URL
   useEffect(() => {
     const handleTokenReceived = async (token: string) => {
+      console.log('========== AUTH TOKEN RECEIVED EVENT ==========')
       console.log('Token received in useElectronAuth:', token)
+      console.log('Current auth state:', authState)
+      console.log('==============================================')
       try {
         // Validate the received token
         const isValid = validateToken(token)
@@ -124,25 +127,30 @@ export function useElectronAuth() {
   const fetchAccessToken = useCallback(
     async ({ forceRefreshToken }: { forceRefreshToken: boolean }) => {
       try {
-        if (!currentToken) {
+        // Use the token from state instead of the global variable
+        const token = authState.token || currentToken
+        
+        if (!token) {
+          console.log('fetchAccessToken: No token available')
           return null
         }
 
         // Check if token needs refresh
-        if (forceRefreshToken || isTokenExpiringSoon(currentToken)) {
+        if (forceRefreshToken || isTokenExpiringSoon(token)) {
           // In a real implementation, you would refresh the token here
           // For now, we'll just return the existing token
           // You might need to call your webapp's refresh endpoint
           console.log('Token refresh requested, but not implemented yet')
         }
 
-        return currentToken
+        console.log('fetchAccessToken: Returning token')
+        return token
       } catch (error) {
         console.error('Failed to fetch access token:', error)
         return null
       }
     },
-    [] // No dependencies since we use currentToken directly
+    [authState.token] // Depend on authState.token to get updates
   )
 
 

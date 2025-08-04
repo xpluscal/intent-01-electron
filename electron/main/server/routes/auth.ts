@@ -20,9 +20,14 @@ router.get('/auth/callback', async (req, res) => {
   try {
     // Get the main window from the server instance
     const server = req.app.locals.server
+    console.log('Express auth callback - Server available:', !!server)
+    console.log('Express auth callback - MainWindow available:', !!server?.mainWindow)
+    console.log('Express auth callback - MainWindow ID:', server?.mainWindow?.id)
+    
     if (server && server.mainWindow) {
       // Send token to the renderer process
       server.mainWindow.webContents.send('auth:token-received', token)
+      console.log('Express auth callback - Token sent to renderer')
       
       // Return success page that auto-closes
       return res.send(`
