@@ -1,11 +1,22 @@
 import path from 'node:path';
-import dotenv from 'dotenv';
 
-// Load environment variables from .env file if it exists
-try {
-  dotenv.config();
-} catch (err) {
-  // .env file is optional
+// Only load dotenv in development mode
+// In production (packaged app), environment variables should be baked in during build time
+// Check if we're in a packaged app by looking for app.asar
+const isPackaged = process.resourcesPath?.includes('app.asar') || process.env.NODE_ENV === 'production';
+
+if (!isPackaged) {
+  try {
+    // Use dynamic import to avoid bundling dotenv in production
+    import('dotenv').then((dotenv) => {
+      dotenv.config();
+      console.log('[config] Loaded .env file in development mode');
+    }).catch(() => {
+      // .env file is optional
+    });
+  } catch (err) {
+    // .env file is optional
+  }
 }
 
 interface ServerConfig {

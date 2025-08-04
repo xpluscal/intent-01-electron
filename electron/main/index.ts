@@ -281,8 +281,20 @@ ipcMain.handle('auth:clear-token', async () => {
 })
 
 ipcMain.handle('auth:open-login', async () => {
+  // Debug logging for environment variables
+  console.log('=== AUTH HOST DEBUG ===')
+  console.log('app.isPackaged:', app.isPackaged)
+  console.log('import.meta.env:', import.meta.env)
+  console.log('import.meta.env.MAIN_VITE_AUTH_HOST:', import.meta.env?.MAIN_VITE_AUTH_HOST)
+  console.log('process.env.AUTH_HOST:', process.env.AUTH_HOST)
+  console.log('process.env.MAIN_VITE_AUTH_HOST:', process.env.MAIN_VITE_AUTH_HOST)
+  console.log('process.env.NODE_ENV:', process.env.NODE_ENV)
+  console.log('======================')
+  
   // Get auth host from environment variables
-  const authHost = process.env.AUTH_HOST || 'http://localhost:3050'
+  // In production, this should be replaced by Vite during build
+  const authHost = import.meta.env.MAIN_VITE_AUTH_HOST || process.env.MAIN_VITE_AUTH_HOST || process.env.AUTH_HOST || 'http://localhost:3050'
+  console.log('Final authHost:', authHost)
   
   // Open the auth webapp in the default browser
   shell.openExternal(authHost)

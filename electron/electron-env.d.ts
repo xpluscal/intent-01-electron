@@ -1,5 +1,15 @@
 /// <reference types="vite-electron-plugin/electron-env" />
 
+interface ImportMetaEnv {
+  readonly MAIN_VITE_AUTH_HOST: string
+  readonly VITE_CONVEX_URL: string
+  readonly VITE_CLERK_PUBLISHABLE_KEY: string
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv
+}
+
 declare namespace NodeJS {
   interface ProcessEnv {
     VSCODE_DEBUG?: 'true'
