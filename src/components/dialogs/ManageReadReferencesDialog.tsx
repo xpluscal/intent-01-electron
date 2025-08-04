@@ -15,7 +15,6 @@ import { Search, Plus, X, BookOpen, FileText, Image, Package } from 'lucide-reac
 import { projectManager } from '@/lib/projectManager'
 import { Reference } from '@/types/projects'
 import { toast } from 'sonner'
-import { cn } from '@/lib/utils'
 
 interface ManageReadReferencesDialogProps {
   open: boolean
@@ -35,7 +34,7 @@ export function ManageReadReferencesDialog({
   const [readReferences, setReadReferences] = useState<Reference[]>([])
   const [availableReferences, setAvailableReferences] = useState<Reference[]>([])
   const [searchQuery, setSearchQuery] = useState('')
-  const [loading, setLoading] = useState(true)
+  const [, setLoading] = useState(true)
 
   useEffect(() => {
     if (open) {

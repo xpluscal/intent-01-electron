@@ -1,20 +1,59 @@
 {
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
   "appId": "com.resonancelabsai.intent",
+  "productName": "Intent",
   "asar": true,
   "directories": {
     "output": "release/${version}"
   },
   "files": [
     "dist-electron",
-    "dist"
+    "dist",
+    "!**/*.ts",
+    "!**/*.map",
+    "!src",
+    "!electron",
+    "!public",
+    "!scripts",
+    "!.git",
+    "!.vscode",
+    "!node_modules/*/{README.md,CHANGELOG.md,LICENSE,license,test,tests,example,examples}",
+    "!node_modules/.cache"
   ],
   "mac": {
-    "artifactName": "${productName}_${version}.${ext}",
+    "category": "public.app-category.developer-tools",
+    "artifactName": "${productName}-${version}-${arch}.${ext}",
     "target": [
-      "dmg",
-      "zip"
+      {
+        "target": "dmg",
+        "arch": ["x64", "arm64"]
+      },
+      {
+        "target": "zip",
+        "arch": ["x64", "arm64"]
+      }
     ],
+    "icon": "./public/AppIcon.icns",
+    "hardenedRuntime": true,
+    "gatekeeperAssess": false,
+    "entitlements": "./build/entitlements.mac.plist",
+    "entitlementsInherit": "./build/entitlements.mac.plist",
+    "electronLanguages": ["en"]
+  },
+  "dmg": {
+    "contents": [
+      {
+        "x": 130,
+        "y": 220
+      },
+      {
+        "x": 410,
+        "y": 220,
+        "type": "link",
+        "path": "/Applications"
+      }
+    ],
+    "title": "${productName} ${version}",
     "icon": "./public/AppIcon.icns"
   },
   "win": {
@@ -34,9 +73,11 @@
     "allowToChangeInstallationDirectory": true,
     "deleteAppDataOnUninstall": false
   },
+  "afterSign": "./scripts/notarize.js",
   "publish": {
-    "provider": "generic",
-    "channel": "latest",
-    "url": "https://github.com/electron-vite/electron-vite-react/releases/download/v0.9.9/"
+    "provider": "github",
+    "owner": "resonancelabsai",
+    "repo": "intent-worker",
+    "releaseType": "release"
   }
 }

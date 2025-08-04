@@ -34,8 +34,6 @@ import {
   FilePlus, 
   Edit, 
   Trash2, 
-  Copy, 
-  Scissors,
   RefreshCcw,
   Bookmark,
   Briefcase,
@@ -210,18 +208,6 @@ export function FileContextMenu({
     }
   }
 
-  const handleRemoveFromProject = async () => {
-    if (!node.projectId || !node.refId) return
-
-    try {
-      await projectManager.removeRefFromProject(node.projectId, node.refId)
-      toast.success('Removed from project successfully')
-      onRefresh()
-    } catch (error) {
-      console.error('Failed to remove from project:', error)
-      toast.error('Failed to remove from project')
-    }
-  }
 
   const handleDeleteProject = async () => {
     if (!node.projectId) return
@@ -685,7 +671,7 @@ export function FileContextMenu({
                 
                 <div className="space-y-2">
                   <Label htmlFor="edit-subtype">Subtype</Label>
-                  <Select value={editSubtype} onValueChange={setEditSubtype}>
+                  <Select value={editSubtype} onValueChange={(value) => setEditSubtype(value as any)}>
                     <SelectTrigger id="edit-subtype">
                       <SelectValue />
                     </SelectTrigger>

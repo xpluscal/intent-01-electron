@@ -67,7 +67,7 @@ export function MarkdownEditor({ content, onChange, onSave }: MarkdownEditorProp
             onSaveContent: handleSaveContent
           })
         },
-        handleKeyDown(view, event) {
+        handleKeyDown(_, event) {
           // Handle Cmd+S / Ctrl+S for save
           if ((event.metaKey || event.ctrlKey) && event.key === 's') {
             event.preventDefault()

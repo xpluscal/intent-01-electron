@@ -4,7 +4,6 @@ import { Badge } from '../ui/badge'
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
-import { Textarea } from '../ui/textarea'
 import { Separator } from '../ui/separator'
 import { Upload, Loader2, Check, AlertCircle, ExternalLink, Plus, Trash2, Eye, EyeOff } from 'lucide-react'
 import {
@@ -76,9 +75,9 @@ export function VercelDeploymentDialog({
   const [showValues, setShowValues] = useState<Record<number, boolean>>({})
   
   // Git Repository
-  const [repoUrl, setRepoUrl] = useState('')
-  const [repoType, setRepoType] = useState<'github' | 'gitlab' | 'bitbucket'>('github')
-  const [isPrivate, setIsPrivate] = useState(false)
+  const [, ] = useState('')
+  const [, ] = useState<'github' | 'gitlab' | 'bitbucket'>('github')
+  const [isPrivate, ] = useState(false)
   
   // Deployment
   const [deployment, setDeployment] = useState<VercelDeployment | null>(null)
@@ -212,10 +211,10 @@ export function VercelDeploymentDialog({
 
     } catch (error) {
       console.error('Deployment failed:', error)
-      setDeploymentError(error.message || 'Deployment failed')
+      setDeploymentError((error as Error).message || 'Deployment failed')
       setDeploymentStep('error')
       toast.error('Deployment failed', {
-        description: error.message || 'An unexpected error occurred'
+        description: (error as Error).message || 'An unexpected error occurred'
       })
     } finally {
       setLoading(false)

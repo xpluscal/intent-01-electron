@@ -1,4 +1,4 @@
-import { AgentOption, getEnabledAgents } from '@/lib/agents'
+import { getEnabledAgents } from '@/lib/agents'
 import {
   Select,
   SelectContent,

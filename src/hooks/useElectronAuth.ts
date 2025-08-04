@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { authEvents } from '../lib/authEvents'
 
 interface AuthState {
@@ -145,32 +145,7 @@ export function useElectronAuth() {
     [] // No dependencies since we use currentToken directly
   )
 
-  // Login function
-  const login = useCallback(async () => {
-    try {
-      setAuthState(prev => ({ ...prev, isLoading: true }))
-      await window.authAPI.openLogin()
-      // The actual authentication will happen via the protocol URL callback
-    } catch (error) {
-      console.error('Failed to open login:', error)
-      setAuthState(prev => ({ ...prev, isLoading: false }))
-    }
-  }, [])
 
-  // Logout function
-  const logout = useCallback(async () => {
-    try {
-      await window.authAPI.clearToken()
-      currentToken = null
-      setAuthState({
-        isLoading: false,
-        isAuthenticated: false,
-        token: null
-      })
-    } catch (error) {
-      console.error('Failed to logout:', error)
-    }
-  }, [])
 
   // Return Clerk-compatible API
   // ConvexProviderWithClerk will wrap this and extract what it needs

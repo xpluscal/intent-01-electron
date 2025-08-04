@@ -24,7 +24,7 @@ export function useDialogKeyboard({
     
     // Cancel on Escape (this is handled by Radix Dialog by default)
     // but we can add additional logic here if needed
-  }, [isOpen, onSubmit, isSubmitDisabled])
+  }, [isOpen, onSubmit, isSubmitDisabled, onCancel])
   
   useEffect(() => {
     document.addEventListener('keydown', handleKeyDown)

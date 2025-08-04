@@ -4,8 +4,10 @@ const PROJECTS_FILE = '.intent-projects.json'
 const REF_METADATA_FILE = '.intent-ref.json'
 
 export class ProjectManager {
-  private workspacePath: string = ''
-  private projectsCache: ProjectsMetadata | null = null
+  // @ts-ignore
+  private _workspacePath: string = ''
+  // @ts-ignore
+  private _projectsCache: ProjectsMetadata | null = null
 
   constructor() {
     // Initialize with workspace path from IPC
@@ -13,7 +15,7 @@ export class ProjectManager {
   }
 
   private async initializeWorkspace() {
-    this.workspacePath = await window.intentAPI.getWorkspacePath()
+    this._workspacePath = await window.intentAPI.getWorkspacePath()
   }
 
   // Load projects metadata
@@ -28,7 +30,7 @@ export class ProjectManager {
         project.modified = new Date(project.modified)
       })
       
-      this.projectsCache = metadata
+      this._projectsCache = metadata
       return metadata
     } catch (error) {
       // If file doesn't exist, return empty projects
@@ -42,7 +44,7 @@ export class ProjectManager {
   // Save projects metadata
   async saveProjects(metadata: ProjectsMetadata): Promise<void> {
     await window.intentAPI.writeFile(PROJECTS_FILE, JSON.stringify(metadata, null, 2))
-    this.projectsCache = metadata
+    this._projectsCache = metadata
   }
 
   // Create a new project

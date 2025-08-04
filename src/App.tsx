@@ -1,6 +1,6 @@
 "use client";
 
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter } from 'react-router-dom'
 import { Authenticated, Unauthenticated } from "convex/react";
 import { SimplifiedLayout } from './components/layout/SimplifiedLayout'
 import { SimplifiedProjectBrowser } from './components/file-browser/SimplifiedProjectBrowser'

@@ -94,7 +94,7 @@ const markdownSerializer = new MarkdownSerializer(
       open(_state, mark, parent, index) {
         return isPlainURL(mark, parent, index, 1) ? "<" : "["
       },
-      close(state, mark, parent, index) {
+      close(_, mark, parent, index) {
         return isPlainURL(mark, parent, index, -1) ? ">"
           : "](" + mark.attrs.href + (mark.attrs.title ? ` "${mark.attrs.title}"` : "") + ")"
       }
