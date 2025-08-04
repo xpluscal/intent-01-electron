@@ -15,7 +15,7 @@
       "dmg",
       "zip"
     ],
-    "icon": "./public/icon.png"
+    "icon": "./public/AppIcon.icns"
   },
   "win": {
     "target": [
