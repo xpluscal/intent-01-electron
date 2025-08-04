@@ -71,6 +71,7 @@
     "electron-updater": "^6.3.9",
     "embla-carousel-react": "^8.6.0",
     "express": "^5.1.0",
+    "fix-path": "^4.0.0",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.536.0",
     "markdown-it": "^14.1.0",

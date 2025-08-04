@@ -11,6 +11,18 @@ import { IntentServer } from './serverIntegration'
 const require = createRequire(import.meta.url)
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
+// Fix PATH for GUI-launched apps on macOS
+// This ensures npx, git, and other CLI tools are available
+if (process.platform === 'darwin' && !process.env.VITE_DEV_SERVER_URL) {
+  // Use dynamic import for ESM compatibility
+  import('fix-path').then(module => {
+    const fixPath = module.default || module
+    fixPath()
+  }).catch(err => {
+    console.error('Failed to load fix-path:', err)
+  })
+}
+
 // The built directory structure
 //
 // ├─┬ dist-electron
