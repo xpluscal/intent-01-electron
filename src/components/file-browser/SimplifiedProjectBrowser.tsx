@@ -617,6 +617,7 @@ export function SimplifiedProjectBrowser() {
         onOpenChange={setCreateArtifactOpen}
         projectId={selectedProjectIdForArtifact}
         onCreateArtifact={handleCreateArtifact}
+        onSuccess={handleRefresh}
       />
     </>
   )

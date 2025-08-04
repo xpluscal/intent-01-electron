@@ -7259,6 +7259,145 @@ router$5.post("/deploy/prepare/:refId", async (req, res, next) => {
     });
   }
 });
+router$5.get("/refs/:refId/env", async (req, res, next) => {
+  try {
+    const { refId } = req.params;
+    const manager = getRefManager(req);
+    if (!await manager.refExists(refId)) {
+      return res.status(404).json({
+        error: {
+          code: "REF_NOT_FOUND",
+          message: `Reference '${refId}' not found`
+        }
+      });
+    }
+    const refPath = path.join(manager.refsDir, refId);
+    const envLocalPath = path.join(refPath, ".env.local");
+    const envExamplePath = path.join(refPath, ".env.example");
+    const variables = [];
+    const exampleVariables = [];
+    try {
+      const envContent = await promises.readFile(envLocalPath, "utf8");
+      const lines = envContent.split("\n");
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed && !trimmed.startsWith("#")) {
+          const eqIndex = trimmed.indexOf("=");
+          if (eqIndex > 0) {
+            const key = trimmed.substring(0, eqIndex).trim();
+            const value = trimmed.substring(eqIndex + 1).trim().replace(/^["']|["']$/g, "");
+            variables.push({ key, value });
+          }
+        }
+      }
+    } catch (error) {
+      logger$5.debug(`No .env.local found for ref ${refId}`);
+    }
+    let hasEnvExample = false;
+    try {
+      const exampleContent = await promises.readFile(envExamplePath, "utf8");
+      hasEnvExample = true;
+      const lines = exampleContent.split("\n");
+      let lastComment = "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith("#")) {
+          lastComment = trimmed.substring(1).trim();
+          continue;
+        }
+        if (trimmed && !trimmed.startsWith("#")) {
+          const eqIndex = trimmed.indexOf("=");
+          if (eqIndex > 0) {
+            const key = trimmed.substring(0, eqIndex).trim();
+            const value = trimmed.substring(eqIndex + 1).trim().replace(/^["']|["']$/g, "");
+            exampleVariables.push({
+              key,
+              value,
+              description: lastComment || void 0
+            });
+            lastComment = "";
+          }
+        }
+      }
+    } catch (error) {
+      logger$5.debug(`No .env.example found for ref ${refId}`);
+    }
+    res.json({
+      variables,
+      exampleVariables,
+      hasEnvExample
+    });
+  } catch (error) {
+    logger$5.error("Failed to get environment variables:", error);
+    next(error);
+  }
+});
+router$5.put("/refs/:refId/env", async (req, res, next) => {
+  try {
+    const { refId } = req.params;
+    const { variables } = req.body;
+    const manager = getRefManager(req);
+    if (!await manager.refExists(refId)) {
+      return res.status(404).json({
+        error: {
+          code: "REF_NOT_FOUND",
+          message: `Reference '${refId}' not found`
+        }
+      });
+    }
+    if (!Array.isArray(variables)) {
+      return res.status(400).json({
+        error: {
+          code: "INVALID_INPUT",
+          message: "Variables must be an array"
+        }
+      });
+    }
+    for (const variable of variables) {
+      if (!variable.key || typeof variable.key !== "string") {
+        return res.status(400).json({
+          error: {
+            code: "INVALID_VARIABLE",
+            message: "Each variable must have a key"
+          }
+        });
+      }
+      if (!/^[A-Z0-9_]+$/i.test(variable.key)) {
+        return res.status(400).json({
+          error: {
+            code: "INVALID_KEY_FORMAT",
+            message: `Invalid key format: ${variable.key}. Use only letters, numbers, and underscores.`
+          }
+        });
+      }
+    }
+    const refPath = path.join(manager.refsDir, refId);
+    const envLocalPath = path.join(refPath, ".env.local");
+    let content = "";
+    for (const variable of variables) {
+      const value = variable.value || "";
+      const needsQuotes = value.includes(" ") || value.includes("\n") || value.includes('"');
+      const quotedValue = needsQuotes ? `"${value.replace(/"/g, '\\"')}"` : value;
+      content += `${variable.key}=${quotedValue}
+`;
+    }
+    await promises.writeFile(envLocalPath, content.trim() + "\n");
+    try {
+      await manager.execGit(refPath, "add .env.local");
+      await manager.execGit(refPath, 'commit -m "Update environment variables"');
+      logger$5.info(`Committed .env.local changes for ref ${refId}`);
+    } catch (error) {
+      logger$5.debug("Could not commit .env.local:", error);
+    }
+    res.json({
+      success: true,
+      message: "Environment variables updated successfully"
+    });
+  } catch (error) {
+    logger$5.error("Failed to update environment variables:", error);
+    next(error);
+  }
+});
 router$5.post("/refs/import-github", async (req, res, next) => {
   try {
     const { githubUrl, refId: customRefId, projectId } = req.body;
@@ -7326,8 +7465,10 @@ router$5.post("/refs/import-github", async (req, res, next) => {
       });
     }
     let subtype = "code";
+    let hasEnvExample = false;
     try {
       const files = await promises.readdir(refPath);
+      hasEnvExample = files.includes(".env.example");
       if (files.includes("package.json") || files.includes("tsconfig.json")) {
         subtype = "code";
       } else if (files.some((f) => f.endsWith(".md") || f.endsWith(".mdx"))) {
@@ -7393,7 +7534,8 @@ router$5.post("/refs/import-github", async (req, res, next) => {
         type: "artifact",
         subtype,
         githubUrl
-      }
+      },
+      hasEnvExample
     });
   } catch (error) {
     logger$5.error("GitHub import error:", error);

@@ -1157,6 +1157,181 @@ router.post('/deploy/prepare/:refId', async (req, res, next) => {
   }
 });
 
+// Get environment variables for a reference
+router.get('/refs/:refId/env', async (req, res, next) => {
+  try {
+    const { refId } = req.params;
+    const manager = getRefManager(req);
+    
+    if (!await manager.refExists(refId)) {
+      return res.status(404).json({
+        error: {
+          code: 'REF_NOT_FOUND',
+          message: `Reference '${refId}' not found`
+        }
+      });
+    }
+    
+    const refPath = path.join(manager.refsDir, refId);
+    const envLocalPath = path.join(refPath, '.env.local');
+    const envExamplePath = path.join(refPath, '.env.example');
+    
+    const variables = [];
+    const exampleVariables = [];
+    
+    // Read .env.local if exists
+    try {
+      const envContent = await fs.readFile(envLocalPath, 'utf8');
+      const lines = envContent.split('\n');
+      
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed && !trimmed.startsWith('#')) {
+          const eqIndex = trimmed.indexOf('=');
+          if (eqIndex > 0) {
+            const key = trimmed.substring(0, eqIndex).trim();
+            const value = trimmed.substring(eqIndex + 1).trim().replace(/^["']|["']$/g, '');
+            variables.push({ key, value });
+          }
+        }
+      }
+    } catch (error) {
+      // .env.local doesn't exist - that's fine
+      logger.debug(`No .env.local found for ref ${refId}`);
+    }
+    
+    // Read .env.example if exists
+    let hasEnvExample = false;
+    try {
+      const exampleContent = await fs.readFile(envExamplePath, 'utf8');
+      hasEnvExample = true;
+      const lines = exampleContent.split('\n');
+      
+      let lastComment = '';
+      for (const line of lines) {
+        const trimmed = line.trim();
+        
+        // Capture comments as descriptions
+        if (trimmed.startsWith('#')) {
+          lastComment = trimmed.substring(1).trim();
+          continue;
+        }
+        
+        if (trimmed && !trimmed.startsWith('#')) {
+          const eqIndex = trimmed.indexOf('=');
+          if (eqIndex > 0) {
+            const key = trimmed.substring(0, eqIndex).trim();
+            const value = trimmed.substring(eqIndex + 1).trim().replace(/^["']|["']$/g, '');
+            exampleVariables.push({ 
+              key, 
+              value,
+              description: lastComment || undefined
+            });
+            lastComment = '';
+          }
+        }
+      }
+    } catch (error) {
+      // .env.example doesn't exist
+      logger.debug(`No .env.example found for ref ${refId}`);
+    }
+    
+    res.json({
+      variables,
+      exampleVariables,
+      hasEnvExample
+    });
+    
+  } catch (error) {
+    logger.error('Failed to get environment variables:', error);
+    next(error);
+  }
+});
+
+// Update environment variables for a reference
+router.put('/refs/:refId/env', async (req, res, next) => {
+  try {
+    const { refId } = req.params;
+    const { variables } = req.body;
+    const manager = getRefManager(req);
+    
+    if (!await manager.refExists(refId)) {
+      return res.status(404).json({
+        error: {
+          code: 'REF_NOT_FOUND',
+          message: `Reference '${refId}' not found`
+        }
+      });
+    }
+    
+    if (!Array.isArray(variables)) {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_INPUT',
+          message: 'Variables must be an array'
+        }
+      });
+    }
+    
+    // Validate variables
+    for (const variable of variables) {
+      if (!variable.key || typeof variable.key !== 'string') {
+        return res.status(400).json({
+          error: {
+            code: 'INVALID_VARIABLE',
+            message: 'Each variable must have a key'
+          }
+        });
+      }
+      
+      // Validate key format (alphanumeric, underscore, no spaces)
+      if (!/^[A-Z0-9_]+$/i.test(variable.key)) {
+        return res.status(400).json({
+          error: {
+            code: 'INVALID_KEY_FORMAT',
+            message: `Invalid key format: ${variable.key}. Use only letters, numbers, and underscores.`
+          }
+        });
+      }
+    }
+    
+    const refPath = path.join(manager.refsDir, refId);
+    const envLocalPath = path.join(refPath, '.env.local');
+    
+    // Build .env.local content
+    let content = '';
+    for (const variable of variables) {
+      const value = variable.value || '';
+      // Quote values that contain spaces or special characters
+      const needsQuotes = value.includes(' ') || value.includes('\n') || value.includes('"');
+      const quotedValue = needsQuotes ? `"${value.replace(/"/g, '\\"')}"` : value;
+      content += `${variable.key}=${quotedValue}\n`;
+    }
+    
+    // Write the file
+    await fs.writeFile(envLocalPath, content.trim() + '\n');
+    
+    // Commit the change if git is initialized
+    try {
+      await manager.execGit(refPath, 'add .env.local');
+      await manager.execGit(refPath, 'commit -m "Update environment variables"');
+      logger.info(`Committed .env.local changes for ref ${refId}`);
+    } catch (error) {
+      // Git might not be initialized or no changes to commit
+      logger.debug('Could not commit .env.local:', error);
+    }
+    
+    res.json({
+      success: true,
+      message: 'Environment variables updated successfully'
+    });
+    
+  } catch (error) {
+    logger.error('Failed to update environment variables:', error);
+    next(error);
+  }
+});
+
 // Import artifact from GitHub URL
 router.post('/refs/import-github', async (req, res, next) => {
   try {
@@ -1248,10 +1423,14 @@ router.post('/refs/import-github', async (req, res, next) => {
       });
     }
     
-    // Detect project type based on files
+    // Detect project type and check for .env.example
     let subtype = 'code';
+    let hasEnvExample = false;
     try {
       const files = await fs.readdir(refPath);
+      
+      // Check for .env.example
+      hasEnvExample = files.includes('.env.example');
       
       // Check for common project files
       if (files.includes('package.json') || files.includes('tsconfig.json')) {
@@ -1332,7 +1511,8 @@ router.post('/refs/import-github', async (req, res, next) => {
         type: 'artifact',
         subtype,
         githubUrl
-      }
+      },
+      hasEnvExample
     });
     
   } catch (error) {

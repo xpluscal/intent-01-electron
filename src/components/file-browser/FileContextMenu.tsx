@@ -40,7 +40,8 @@ import {
   Bookmark,
   Briefcase,
   BookOpen,
-  Package
+  Package,
+  Settings
 } from 'lucide-react'
 import { ProjectFileNode } from '@/types/projects'
 import { projectManager } from '@/lib/projectManager'
@@ -49,6 +50,7 @@ import { useDialogKeyboard } from '@/hooks/useDialogKeyboard'
 import { KeyboardHint } from '../ui/keyboard-hint'
 import { EmojiPicker } from '../ui/emoji-picker'
 import { ManageReadReferencesDialog } from '../dialogs/ManageReadReferencesDialog'
+import { EnvVariablesDialog } from '../dialogs/EnvVariablesDialog'
 
 interface FileContextMenuProps {
   node: ProjectFileNode
@@ -85,6 +87,7 @@ export function FileContextMenu({
   const [editSubtype, setEditSubtype] = useState(node.metadata?.refSubtype || 'document')
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [manageReadRefsOpen, setManageReadRefsOpen] = useState(false)
+  const [envVariablesOpen, setEnvVariablesOpen] = useState(false)
 
   const isProject = node.nodeType === 'project'
   const isReference = node.nodeType === 'reference'
@@ -367,6 +370,10 @@ export function FileContextMenu({
                   <ContextMenuItem onClick={() => setManageReadRefsOpen(true)}>
                     <BookOpen className="mr-2 h-4 w-4" />
                     Manage Context
+                  </ContextMenuItem>
+                  <ContextMenuItem onClick={() => setEnvVariablesOpen(true)}>
+                    <Settings className="mr-2 h-4 w-4" />
+                    Environment Variables
                   </ContextMenuItem>
                 </>
               )}
@@ -758,6 +765,16 @@ export function FileContextMenu({
           artifactId={node.refId}
           artifactName={node.name}
           projectId={node.projectId}
+        />
+      )}
+
+      {/* Environment Variables Dialog */}
+      {isArtifact && node.refId && (
+        <EnvVariablesDialog
+          open={envVariablesOpen}
+          onOpenChange={setEnvVariablesOpen}
+          refId={node.refId}
+          refName={node.name}
         />
       )}
     </>

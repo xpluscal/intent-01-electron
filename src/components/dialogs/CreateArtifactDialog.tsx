@@ -28,6 +28,7 @@ import { toast } from 'sonner'
 import { useDialogKeyboard } from '@/hooks/useDialogKeyboard'
 import { KeyboardHint } from '../ui/keyboard-hint'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs'
+import { EnvVariablesDialog } from './EnvVariablesDialog'
 
 interface CreateArtifactDialogProps {
   open: boolean
@@ -39,13 +40,15 @@ interface CreateArtifactDialogProps {
     subtype: string,
     readReferences: string[]
   ) => Promise<void>
+  onSuccess?: () => void
 }
 
 export function CreateArtifactDialog({
   open,
   onOpenChange,
   projectId,
-  onCreateArtifact
+  onCreateArtifact,
+  onSuccess
 }: CreateArtifactDialogProps) {
   const [artifactName, setArtifactName] = useState('')
   const [artifactDescription, setArtifactDescription] = useState('')
@@ -57,6 +60,9 @@ export function CreateArtifactDialog({
   const [creating, setCreating] = useState(false)
   const [importMethod, setImportMethod] = useState<'create' | 'github'>('create')
   const [githubUrl, setGithubUrl] = useState('')
+  const [showEnvDialog, setShowEnvDialog] = useState(false)
+  const [importedRefId, setImportedRefId] = useState<string | null>(null)
+  const [importedRefName, setImportedRefName] = useState<string | null>(null)
 
   useEffect(() => {
     if (open && projectId) {
@@ -118,6 +124,18 @@ export function CreateArtifactDialog({
           for (const readRefId of selectedReferences) {
             await projectManager.addReadReference(result.ref.id, readRefId)
           }
+        }
+        
+        // Call onSuccess to trigger refresh
+        onSuccess?.()
+        
+        // Check if we need to show environment variables dialog
+        if (result.hasEnvExample) {
+          setImportedRefId(result.ref.id)
+          setImportedRefName(result.ref.name)
+          setShowEnvDialog(true)
+          // Don't reset form yet, wait for env dialog to close
+          return
         }
       } else if (onCreateArtifact) {
         // Use provided create function
@@ -202,6 +220,7 @@ export function CreateArtifactDialog({
   })
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
         <DialogHeader>
@@ -387,5 +406,30 @@ export function CreateArtifactDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    {/* Environment Variables Dialog */}
+    {importedRefId && importedRefName && (
+      <EnvVariablesDialog
+        open={showEnvDialog}
+        onOpenChange={setShowEnvDialog}
+        refId={importedRefId}
+        refName={importedRefName}
+        autoShow={true}
+        onComplete={() => {
+          // Reset form after env dialog closes
+          setArtifactName('')
+          setArtifactDescription('')
+          setArtifactSubtype('code')
+          setSelectedReferences(new Set())
+          setSearchQuery('')
+          setGithubUrl('')
+          setImportMethod('create')
+          setImportedRefId(null)
+          setImportedRefName(null)
+          onOpenChange(false)
+        }}
+      />
+    )}
+    </>
   )
 }
