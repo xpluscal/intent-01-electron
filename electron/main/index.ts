@@ -127,7 +127,8 @@ async function createWindow() {
     // Open devTool if the app is not packaged
     // win.webContents.openDevTools()
   } else {
-    win.loadFile(indexHtml)
+    // In production, load from the Express server to support cookies for Clerk
+    win.loadURL('http://localhost:3456')
   }
 
   // Test actively push message to the Electron-Renderer
@@ -226,7 +227,8 @@ ipcMain.handle('open-win', (_, arg) => {
   if (VITE_DEV_SERVER_URL) {
     childWindow.loadURL(`${VITE_DEV_SERVER_URL}#${arg}`)
   } else {
-    childWindow.loadFile(indexHtml, { hash: arg })
+    // In production, load from the Express server to support cookies for Clerk
+    childWindow.loadURL(`http://localhost:3456#${arg}`)
   }
 })
 

@@ -6,14 +6,19 @@ import { useElectronAuth } from "./hooks/useElectronAuth";
 import "./index.css";
 import App from "./App.tsx";
 import { ErrorBoundary } from "./ErrorBoundary.tsx";
+import { ClerkProvider, useAuth } from "@clerk/clerk-react";
 
 const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string);
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ErrorBoundary>
-      <ConvexProviderWithClerk client={convex} useAuth={useElectronAuth}>
-        <App />
-      </ConvexProviderWithClerk>
+      <ClerkProvider
+        publishableKey={import.meta.env.VITE_CLERK_PUBLISHABLE_KEY}
+      >
+        <ConvexProviderWithClerk client={convex} useAuth={useElectronAuth}>
+          <App />
+        </ConvexProviderWithClerk>
+      </ClerkProvider>
     </ErrorBoundary>
   </StrictMode>,
 );

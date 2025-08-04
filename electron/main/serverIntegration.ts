@@ -149,6 +149,20 @@ export class IntentServer {
       // Start resource monitoring
       app.locals.resourceMonitor.start()
 
+      // Serve static files from the React build directory in production
+      if (electronApp.isPackaged) {
+        const staticPath = path.join(process.env.APP_ROOT || '', 'dist')
+        console.log('Serving static files from:', staticPath)
+        
+        // Serve static assets
+        app.use(express.static(staticPath))
+        
+        // Handle client-side routing - serve index.html for all non-API routes
+        app.get(/^(?!\/api|\/execute|\/status|\/message|\/logs|\/files|\/preview|\/refs|\/cleanup|\/resources|\/monitoring|\/auth|\/health).*/, (req, res) => {
+          res.sendFile(path.join(staticPath, 'index.html'))
+        })
+      }
+
       // Set up routes
 
       app.use('/', authRoutes)
