@@ -54,6 +54,22 @@ contextBridge.exposeInMainWorld('intentAPI', {
   mergeExecutionBranch: (refId: string, executionId: string) => ipcRenderer.invoke('intent:merge-execution-branch', refId, executionId),
 })
 
+// Expose Auth API
+contextBridge.exposeInMainWorld('authAPI', {
+  storeToken: (token: string) => ipcRenderer.invoke('auth:store-token', token),
+  getToken: () => ipcRenderer.invoke('auth:get-token'),
+  clearToken: () => ipcRenderer.invoke('auth:clear-token'),
+  openLogin: () => ipcRenderer.invoke('auth:open-login'),
+  
+  // Listen for token received from protocol URL
+  onTokenReceived: (callback: (token: string) => void) => {
+    ipcRenderer.on('auth:token-received', (event, token) => callback(token))
+  },
+  removeTokenListener: () => {
+    ipcRenderer.removeAllListeners('auth:token-received')
+  }
+})
+
 // --------- Preload scripts loading ---------
 function domReady(condition: DocumentReadyState[] = ['complete', 'interactive']) {
   return new Promise(resolve => {

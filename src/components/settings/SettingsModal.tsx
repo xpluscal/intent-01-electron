@@ -9,7 +9,9 @@ import {
 import { Label } from '../ui/label'
 import { Switch } from '../ui/switch'
 import { Badge } from '../ui/badge'
-import { Loader2 } from 'lucide-react'
+import { Button } from '../ui/button'
+import { Loader2, LogOut } from 'lucide-react'
+import { useConvexAuth } from 'convex/react'
 
 interface SettingsModalProps {
   open: boolean
@@ -19,6 +21,7 @@ interface SettingsModalProps {
 export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
   const [serverStatus, setServerStatus] = useState<{ running: boolean; port: number | null }>({ running: false, port: null })
   const [loading, setLoading] = useState(true)
+  const { isAuthenticated } = useConvexAuth()
 
   useEffect(() => {
     if (open) {
@@ -36,6 +39,11 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleLogout = async () => {
+    await window.authAPI.clearToken()
+    window.location.reload()
   }
 
   return (
@@ -117,6 +125,30 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
               </div>
             </div>
           </div>
+
+          {/* Account */}
+          {isAuthenticated && (
+            <div className="space-y-4">
+              <h3 className="text-sm font-medium">Account</h3>
+              <div className="flex justify-between items-center">
+                <div className="space-y-0.5">
+                  <Label>Sign out</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Sign out of your current account
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleLogout}
+                  className="gap-2"
+                >
+                  <LogOut className="h-4 w-4" />
+                  Sign Out
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>

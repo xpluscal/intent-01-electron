@@ -1,5 +1,5 @@
 import { ReactNode, useState } from 'react'
-import { UserButton } from '@clerk/clerk-react'
+// import { UserButton } from '@clerk/clerk-react'
 import { Button } from '../ui/button'
 import { Settings } from 'lucide-react'
 import { SettingsModal } from '../settings/SettingsModal'
@@ -33,7 +33,7 @@ export function SimplifiedLayout({ children }: SimplifiedLayoutProps) {
           >
             <Settings className="h-4 w-4" />
           </Button>
-          <UserButton afterSignOutUrl="/" />
+          {/* <UserButton afterSignOutUrl="/" /> */}
         </div>
       </header>
 

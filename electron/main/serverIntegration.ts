@@ -1,4 +1,4 @@
-import { app as electronApp } from 'electron'
+import { app as electronApp, BrowserWindow } from 'electron'
 import path from 'node:path'
 import { EventEmitter } from 'node:events'
 import { fileURLToPath } from 'node:url'
@@ -34,6 +34,7 @@ import cleanupRoutes from './server/routes/cleanup.js'
 import resourcesRoutes from './server/routes/resources.js'
 import monitoringRoutes from './server/routes/monitoring.js'
 import executionFilesRoutes from './server/routes/executionFiles.js'
+import authRoutes from './server/routes/auth.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -48,10 +49,19 @@ export class IntentServer {
   private eventEmitter: EventEmitter
   private isRunning: boolean = false
   private port: number
+  private _mainWindow: BrowserWindow | null = null
 
   constructor(options: ServerOptions = {}) {
     this.port = options.port || 3000
     this.eventEmitter = new EventEmitter()
+  }
+  
+  setMainWindow(window: BrowserWindow) {
+    this._mainWindow = window
+  }
+  
+  get mainWindow() {
+    return this._mainWindow
   }
 
   async start(): Promise<void> {
@@ -108,10 +118,11 @@ export class IntentServer {
       this.db = new Database(dbPath)
       await this.db.initialize()
       
-      // Make db and eventEmitter available to routes
+      // Make db, eventEmitter, and server instance available to routes
       app.locals.db = this.db
       app.locals.eventEmitter = this.eventEmitter
       app.locals.config = config
+      app.locals.server = this
       
       // Initialize managers
       app.locals.processManager = new ProcessManager(this.db, config, this.eventEmitter)
@@ -140,6 +151,7 @@ export class IntentServer {
 
       // Set up routes
 
+      app.use('/', authRoutes)
       app.use('/', executeRoutes)
       app.use('/', statusRoutes)
       app.use('/', messageRoutes)

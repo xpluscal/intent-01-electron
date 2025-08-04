@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, ipcMain } from 'electron'
+import { app, BrowserWindow, shell, ipcMain, protocol, safeStorage } from 'electron'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
@@ -37,6 +37,15 @@ if (os.release().startsWith('6.1')) app.disableHardwareAcceleration()
 // Set application name for Windows 10+ notifications
 if (process.platform === 'win32') app.setAppUserModelId(app.getName())
 
+// Register custom protocol
+if (process.defaultApp) {
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient('intent', process.execPath, [path.resolve(process.argv[1])])
+  }
+} else {
+  app.setAsDefaultProtocolClient('intent')
+}
+
 if (!app.requestSingleInstanceLock()) {
   app.quit()
   process.exit(0)
@@ -48,6 +57,22 @@ const indexHtml = path.join(RENDERER_DIST, 'index.html')
 
 // Initialize Intent server
 let intentServer: IntentServer | null = null
+
+// Handle protocol URL
+function handleProtocolUrl(url: string) {
+  console.log('Received protocol URL:', url)
+  
+  // Parse the URL to extract the token
+  if (url.startsWith('intent://auth/callback')) {
+    const urlObj = new URL(url.replace('intent://', 'http://'))
+    const token = urlObj.searchParams.get('token')
+    
+    if (token && win) {
+      // Send the token to the renderer process
+      win.webContents.send('auth:token-received', token)
+    }
+  }
+}
 
 async function createWindow() {
   win = new BrowserWindow({
@@ -65,6 +90,11 @@ async function createWindow() {
       // contextIsolation: false,
     },
   })
+  
+  // Make window available to server for auth callbacks
+  if (intentServer) {
+    intentServer.setMainWindow(win)
+  }
 
   if (VITE_DEV_SERVER_URL) { // #298
     win.loadURL(VITE_DEV_SERVER_URL)
@@ -128,7 +158,13 @@ app.on('window-all-closed', async () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-app.on('second-instance', () => {
+app.on('second-instance', (event, commandLine, workingDirectory) => {
+  // Handle protocol URL
+  const protocolUrl = commandLine.find(arg => arg.startsWith('intent://'))
+  if (protocolUrl) {
+    handleProtocolUrl(protocolUrl)
+  }
+  
   if (win) {
     // Focus on the main window if the user tried to open another
     if (win.isMinimized()) win.restore()
@@ -143,6 +179,12 @@ app.on('activate', () => {
   } else {
     createWindow()
   }
+})
+
+// Handle protocol URL on macOS
+app.on('open-url', (event, url) => {
+  event.preventDefault()
+  handleProtocolUrl(url)
 })
 
 // New window example arg: new windows url
@@ -168,6 +210,144 @@ ipcMain.handle('intent-server:status', () => {
     running: intentServer?.isServerRunning() || false,
     port: intentServer?.getPort() || null
   }
+})
+
+// Authentication handlers
+ipcMain.handle('auth:store-token', async (event, token: string) => {
+  try {
+    if (!safeStorage.isEncryptionAvailable()) {
+      // Fallback to plain storage if encryption is not available
+      const { promises: fs } = await import('node:fs')
+      const userDataPath = app.getPath('userData')
+      const tokenPath = path.join(userDataPath, '.auth-token')
+      await fs.writeFile(tokenPath, token, 'utf-8')
+      return { success: true }
+    }
+    
+    // Encrypt and store the token
+    const encrypted = safeStorage.encryptString(token)
+    const { promises: fs } = await import('node:fs')
+    const userDataPath = app.getPath('userData')
+    const tokenPath = path.join(userDataPath, '.auth-token')
+    await fs.writeFile(tokenPath, encrypted)
+    return { success: true }
+  } catch (error) {
+    console.error('Failed to store auth token:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('auth:get-token', async () => {
+  try {
+    const { promises: fs } = await import('node:fs')
+    const userDataPath = app.getPath('userData')
+    const tokenPath = path.join(userDataPath, '.auth-token')
+    
+    // Check if token file exists
+    try {
+      await fs.access(tokenPath)
+    } catch {
+      return { success: false, token: null }
+    }
+    
+    const encrypted = await fs.readFile(tokenPath)
+    
+    if (!safeStorage.isEncryptionAvailable()) {
+      // Return plain token if encryption is not available
+      return { success: true, token: encrypted.toString('utf-8') }
+    }
+    
+    // Decrypt and return the token
+    const token = safeStorage.decryptString(encrypted)
+    return { success: true, token }
+  } catch (error) {
+    console.error('Failed to retrieve auth token:', error)
+    return { success: false, token: null, error: error.message }
+  }
+})
+
+ipcMain.handle('auth:clear-token', async () => {
+  try {
+    const { promises: fs } = await import('node:fs')
+    const userDataPath = app.getPath('userData')
+    const tokenPath = path.join(userDataPath, '.auth-token')
+    
+    await fs.unlink(tokenPath).catch(() => {})
+    return { success: true }
+  } catch (error) {
+    console.error('Failed to clear auth token:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('auth:open-login', async () => {
+  // Create a new window for the auth webapp
+  const authWindow = new BrowserWindow({
+    width: 800,
+    height: 600,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true
+    },
+    parent: win || undefined,
+    modal: false,
+    show: false
+  })
+  
+  // Handle the auth callback
+  authWindow.webContents.on('will-navigate', (event, url) => {
+    if (url.startsWith('intent://auth/callback')) {
+      event.preventDefault()
+      
+      // Parse the URL to extract the token
+      const urlObj = new URL(url.replace('intent://', 'http://'))
+      const token = urlObj.searchParams.get('token')
+      
+      if (token && win) {
+        // Send the token to the main renderer process
+        win.webContents.send('auth:token-received', token)
+      }
+      
+      // Close the auth window
+      authWindow.close()
+    }
+  })
+  
+  // Also handle redirects
+  authWindow.webContents.on('will-redirect', (event, url) => {
+    if (url.startsWith('intent://auth/callback')) {
+      event.preventDefault()
+      
+      const urlObj = new URL(url.replace('intent://', 'http://'))
+      const token = urlObj.searchParams.get('token')
+      
+      if (token && win) {
+        win.webContents.send('auth:token-received', token)
+      }
+      
+      authWindow.close()
+    }
+  })
+  
+  // Handle HTTP callback as well
+  authWindow.webContents.on('did-navigate', (event, url) => {
+    if (url.startsWith('http://localhost:3456/auth/callback')) {
+      // The auth route will handle sending the token, just close the window after a short delay
+      setTimeout(() => {
+        if (!authWindow.isDestroyed()) {
+          authWindow.close()
+        }
+      }, 2500) // Give time for the success page to show
+    }
+  })
+  
+  // Load the auth webapp
+  authWindow.loadURL('http://localhost:3050')
+  authWindow.once('ready-to-show', () => {
+    authWindow.show()
+  })
+  
+  return { success: true }
 })
 
 // File operation handlers
