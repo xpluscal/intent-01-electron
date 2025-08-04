@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
   "appId": "com.resonancelabsai.intent",
   "productName": "Intent",
-  "asar": true,
+  "asar": false,
   "directories": {
     "output": "release/${version}"
   },
@@ -73,7 +73,6 @@
     "allowToChangeInstallationDirectory": true,
     "deleteAppDataOnUninstall": false
   },
-  "afterSign": "./scripts/notarize.js",
   "publish": {
     "provider": "github",
     "owner": "resonancelabsai",
