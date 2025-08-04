@@ -21,12 +21,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../ui/select'
-import { Search, FileText, Image, Package } from 'lucide-react'
+import { Search, FileText, Image, Package, Github } from 'lucide-react'
 import { projectManager } from '@/lib/projectManager'
 import { Reference } from '@/types/projects'
 import { toast } from 'sonner'
 import { useDialogKeyboard } from '@/hooks/useDialogKeyboard'
 import { KeyboardHint } from '../ui/keyboard-hint'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs'
+import { EnvVariablesDialog } from './EnvVariablesDialog'
 
 interface CreateArtifactDialogProps {
   open: boolean
@@ -38,13 +40,15 @@ interface CreateArtifactDialogProps {
     subtype: string,
     readReferences: string[]
   ) => Promise<void>
+  onSuccess?: () => void
 }
 
 export function CreateArtifactDialog({
   open,
   onOpenChange,
   projectId,
-  onCreateArtifact
+  onCreateArtifact,
+  onSuccess
 }: CreateArtifactDialogProps) {
   const [artifactName, setArtifactName] = useState('')
   const [artifactDescription, setArtifactDescription] = useState('')
@@ -54,6 +58,11 @@ export function CreateArtifactDialog({
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [importMethod, setImportMethod] = useState<'create' | 'github'>('create')
+  const [githubUrl, setGithubUrl] = useState('')
+  const [showEnvDialog, setShowEnvDialog] = useState(false)
+  const [importedRefId, setImportedRefId] = useState<string | null>(null)
+  const [importedRefName, setImportedRefName] = useState<string | null>(null)
 
   useEffect(() => {
     if (open && projectId) {
@@ -83,11 +92,53 @@ export function CreateArtifactDialog({
   }
 
   const handleCreate = async () => {
-    if (!artifactName.trim()) return
+    if (importMethod === 'create' && !artifactName.trim()) return
+    if (importMethod === 'github' && !githubUrl.trim()) return
     
     setCreating(true)
     try {
-      if (onCreateArtifact) {
+      if (importMethod === 'github') {
+        // Import from GitHub
+        const response = await fetch('http://localhost:3456/refs/import-github', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            githubUrl: githubUrl.trim(),
+            refId: artifactName.trim() || undefined,
+            projectId
+          })
+        })
+        
+        if (!response.ok) {
+          const error = await response.json()
+          throw new Error(error.error?.message || 'Failed to import from GitHub')
+        }
+        
+        const result = await response.json()
+        toast.success(`Successfully imported ${result.ref.name} from GitHub`)
+        
+        // Add read references if any were selected
+        if (selectedReferences.size > 0) {
+          for (const readRefId of selectedReferences) {
+            await projectManager.addReadReference(result.ref.id, readRefId)
+          }
+        }
+        
+        // Call onSuccess to trigger refresh
+        onSuccess?.()
+        
+        // Check if we need to show environment variables dialog
+        if (result.hasEnvExample) {
+          setImportedRefId(result.ref.id)
+          setImportedRefName(result.ref.name)
+          setShowEnvDialog(true)
+          // Don't reset form yet, wait for env dialog to close
+          return
+        }
+      } else if (onCreateArtifact) {
+        // Use provided create function
         await onCreateArtifact(
           artifactName.trim(),
           artifactDescription.trim(),
@@ -127,10 +178,12 @@ export function CreateArtifactDialog({
       setArtifactSubtype('code')
       setSelectedReferences(new Set())
       setSearchQuery('')
+      setGithubUrl('')
+      setImportMethod('create')
       onOpenChange(false)
     } catch (error) {
       console.error('Failed to create artifact:', error)
-      toast.error('Failed to create artifact')
+      toast.error(error.message || 'Failed to create artifact')
     } finally {
       setCreating(false)
     }
@@ -161,10 +214,13 @@ export function CreateArtifactDialog({
     isOpen: open,
     onSubmit: handleCreate,
     onCancel: () => onOpenChange(false),
-    isSubmitDisabled: !artifactName.trim() || creating
+    isSubmitDisabled: creating || (
+      importMethod === 'create' ? !artifactName.trim() : !githubUrl.trim()
+    )
   })
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
         <DialogHeader>
@@ -176,44 +232,87 @@ export function CreateArtifactDialog({
 
         <ScrollArea className="flex-1 pr-4">
           <div className="space-y-4">
-          {/* Artifact Name */}
-          <div className="space-y-2">
-            <Label htmlFor="artifact-name">Artifact Name</Label>
-            <Input
-              id="artifact-name"
-              placeholder="my-artifact"
-              value={artifactName}
-              onChange={(e) => setArtifactName(e.target.value)}
-              autoFocus
-            />
-          </div>
+          <Tabs value={importMethod} onValueChange={(v) => setImportMethod(v as 'create' | 'github')}>
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="create">Create New</TabsTrigger>
+              <TabsTrigger value="github">
+                <Github className="h-4 w-4 mr-2" />
+                Import from GitHub
+              </TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="create" className="space-y-4 mt-4">
+              {/* Artifact Name */}
+              <div className="space-y-2">
+                <Label htmlFor="artifact-name">Artifact Name</Label>
+                <Input
+                  id="artifact-name"
+                  placeholder="my-artifact"
+                  value={artifactName}
+                  onChange={(e) => setArtifactName(e.target.value)}
+                  autoFocus
+                />
+              </div>
 
-          {/* Artifact Description */}
-          <div className="space-y-2">
-            <Label htmlFor="artifact-description">Description</Label>
-            <Textarea
-              id="artifact-description"
-              placeholder="Describe what this artifact is for..."
-              rows={3}
-              value={artifactDescription}
-              onChange={(e) => setArtifactDescription(e.target.value)}
-            />
-          </div>
+              {/* Artifact Description */}
+              <div className="space-y-2">
+                <Label htmlFor="artifact-description">Description</Label>
+                <Textarea
+                  id="artifact-description"
+                  placeholder="Describe what this artifact is for..."
+                  rows={3}
+                  value={artifactDescription}
+                  onChange={(e) => setArtifactDescription(e.target.value)}
+                />
+              </div>
 
-          {/* Artifact Subtype */}
-          <div className="space-y-2">
-            <Label htmlFor="artifact-subtype">Type</Label>
-            <Select value={artifactSubtype} onValueChange={setArtifactSubtype}>
-              <SelectTrigger id="artifact-subtype">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="code">Code</SelectItem>
-                <SelectItem value="text">Text</SelectItem>
-                <SelectItem value="media-artifact">Media</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+              {/* Artifact Subtype */}
+              <div className="space-y-2">
+                <Label htmlFor="artifact-subtype">Type</Label>
+                <Select value={artifactSubtype} onValueChange={setArtifactSubtype}>
+                  <SelectTrigger id="artifact-subtype">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="code">Code</SelectItem>
+                    <SelectItem value="text">Text</SelectItem>
+                    <SelectItem value="media-artifact">Media</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </TabsContent>
+            
+            <TabsContent value="github" className="space-y-4 mt-4">
+              {/* GitHub URL */}
+              <div className="space-y-2">
+                <Label htmlFor="github-url">GitHub Repository URL</Label>
+                <Input
+                  id="github-url"
+                  placeholder="https://github.com/username/repository"
+                  value={githubUrl}
+                  onChange={(e) => setGithubUrl(e.target.value)}
+                  autoFocus
+                />
+                <p className="text-sm text-muted-foreground">
+                  Enter the URL of a public GitHub repository to import
+                </p>
+              </div>
+              
+              {/* Optional custom name */}
+              <div className="space-y-2">
+                <Label htmlFor="custom-name">Custom Name (Optional)</Label>
+                <Input
+                  id="custom-name"
+                  placeholder="Leave empty to use repository name"
+                  value={artifactName}
+                  onChange={(e) => setArtifactName(e.target.value)}
+                />
+                <p className="text-sm text-muted-foreground">
+                  Override the default artifact name
+                </p>
+              </div>
+            </TabsContent>
+          </Tabs>
 
           {/* Context References */}
           {projectId && availableReferences.length > 0 && (
@@ -296,13 +395,41 @@ export function CreateArtifactDialog({
             </Button>
             <Button
               onClick={handleCreate}
-              disabled={!artifactName.trim() || creating}
+              disabled={creating || (
+                importMethod === 'create' ? !artifactName.trim() : !githubUrl.trim()
+              )}
             >
-              {creating ? 'Creating...' : 'Create Artifact'}
+              {creating ? (importMethod === 'github' ? 'Importing...' : 'Creating...') : 
+               (importMethod === 'github' ? 'Import from GitHub' : 'Create Artifact')}
             </Button>
           </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    {/* Environment Variables Dialog */}
+    {importedRefId && importedRefName && (
+      <EnvVariablesDialog
+        open={showEnvDialog}
+        onOpenChange={setShowEnvDialog}
+        refId={importedRefId}
+        refName={importedRefName}
+        autoShow={true}
+        onComplete={() => {
+          // Reset form after env dialog closes
+          setArtifactName('')
+          setArtifactDescription('')
+          setArtifactSubtype('code')
+          setSelectedReferences(new Set())
+          setSearchQuery('')
+          setGithubUrl('')
+          setImportMethod('create')
+          setImportedRefId(null)
+          setImportedRefName(null)
+          onOpenChange(false)
+        }}
+      />
+    )}
+    </>
   )
 }
