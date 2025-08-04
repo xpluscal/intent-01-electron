@@ -190,13 +190,16 @@ function useLoading() {
   oStyle.innerHTML = styleContent
   oDiv.className = 'app-loading-wrap'
   oDiv.innerHTML = `
-    <div class="retro-loader">╦╔╗╔╔╦╗╔═╗╔╗╔╔╦╗ ╔═╗╦
-║║║║ ║ ╠╣ ║║║ ║  ║ ║║
-╩╝╚╝ ╩ ╚═╝╝╚╝ ╩  ╚═╝╩</div>
-    <div class="loading-text">INITIALIZING</div>
+    <div class="retro-loader" style="font-size: 0.7rem; line-height: 0.8rem; color: var(--primary);">██╗███╗   ██╗████████╗███████╗███╗   ██╗████████╗    ██████╗  ██╗
+██║████╗  ██║╚══██╔══╝██╔════╝████╗  ██║╚══██╔══╝   ██╔═████╗███║
+██║██╔██╗ ██║   ██║   █████╗  ██╔██╗ ██║   ██║█████╗██║██╔██║╚██║
+██║██║╚██╗██║   ██║   ██╔══╝  ██║╚██╗██║   ██║╚════╝████╔╝██║ ██║
+██║██║ ╚████║   ██║   ███████╗██║ ╚████║   ██║      ╚██████╔╝ ██║
+╚═╝╚═╝  ╚═══╝   ╚═╝   ╚══════╝╚═╝  ╚═══╝   ╚═╝       ╚═════╝  ╚═╝</div>
+    <div class="loading-text">Initializing...</div>
     <div class="loading-footer">
       <div>INTENT-01</div>
-      <div>© 2025 RESONANCE LABS</div>
+      <div>RESONANCE LABS</div>
     </div>
   `
 

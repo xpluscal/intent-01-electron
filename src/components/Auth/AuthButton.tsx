@@ -1,5 +1,6 @@
 import { useConvexAuth } from "convex/react"
 import { Button } from "../ui/button"
+import { Terminal } from 'lucide-react'
 
 export function AuthButton() {
   const { isLoading, isAuthenticated } = useConvexAuth()
@@ -30,7 +31,8 @@ export function AuthButton() {
   }
 
   return (
-    <Button onClick={login} variant="default">
+    <Button onClick={login} variant="default" className="bg-background text-black hover:bg-gray-200 hover:text-black">
+      <Terminal className="mr-2 h-4 w-4" />
       Sign In
     </Button>
   )
