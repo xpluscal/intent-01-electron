@@ -281,71 +281,11 @@ ipcMain.handle('auth:clear-token', async () => {
 })
 
 ipcMain.handle('auth:open-login', async () => {
-  // Create a new window for the auth webapp
-  const authWindow = new BrowserWindow({
-    width: 800,
-    height: 600,
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true
-    },
-    parent: win || undefined,
-    modal: false,
-    show: false
-  })
+  // Get auth host from environment variables
+  const authHost = process.env.AUTH_HOST || 'http://localhost:3050'
   
-  // Handle the auth callback
-  authWindow.webContents.on('will-navigate', (event, url) => {
-    if (url.startsWith('intent://auth/callback')) {
-      event.preventDefault()
-      
-      // Parse the URL to extract the token
-      const urlObj = new URL(url.replace('intent://', 'http://'))
-      const token = urlObj.searchParams.get('token')
-      
-      if (token && win) {
-        // Send the token to the main renderer process
-        win.webContents.send('auth:token-received', token)
-      }
-      
-      // Close the auth window
-      authWindow.close()
-    }
-  })
-  
-  // Also handle redirects
-  authWindow.webContents.on('will-redirect', (event, url) => {
-    if (url.startsWith('intent://auth/callback')) {
-      event.preventDefault()
-      
-      const urlObj = new URL(url.replace('intent://', 'http://'))
-      const token = urlObj.searchParams.get('token')
-      
-      if (token && win) {
-        win.webContents.send('auth:token-received', token)
-      }
-      
-      authWindow.close()
-    }
-  })
-  
-  // Handle HTTP callback as well
-  authWindow.webContents.on('did-navigate', (event, url) => {
-    if (url.startsWith('http://localhost:3456/auth/callback')) {
-      // The auth route will handle sending the token, just close the window after a short delay
-      setTimeout(() => {
-        if (!authWindow.isDestroyed()) {
-          authWindow.close()
-        }
-      }, 2500) // Give time for the success page to show
-    }
-  })
-  
-  // Load the auth webapp
-  authWindow.loadURL('http://localhost:3050')
-  authWindow.once('ready-to-show', () => {
-    authWindow.show()
-  })
+  // Open the auth webapp in the default browser
+  shell.openExternal(authHost)
   
   return { success: true }
 })

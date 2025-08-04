@@ -21,7 +21,7 @@ try {
   
   // Build with Vite
   console.log('Building with Vite...');
-  execSync('vite build', { cwd: rootDir, stdio: 'inherit' });
+  execSync('vite build --mode production', { cwd: rootDir, stdio: 'inherit' });
   
   // Copy server files
   console.log('Copying server files...');

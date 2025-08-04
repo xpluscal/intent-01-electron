@@ -16,11 +16,14 @@ export function SimplifiedLayout({ children }: SimplifiedLayoutProps) {
       {/* Top Navigation */}
       <header className="h-12 border-b flex items-center justify-between px-4">
         <div className="flex items-center gap-4">
-          <div className="font-mono text-[9px] leading-[10px] text-primary select-none">
+          <div className="font-mono text-[3px] leading-[4px] text-primary select-none">
             <pre className="whitespace-pre">
-{`╦╔╗╔╔╦╗╔═╗╔╗╔╔╦╗ ╔═╗╦
-║║║║ ║ ╠╣ ║║║ ║  ║ ║║
-╩╝╚╝ ╩ ╚═╝╝╚╝ ╩  ╚═╝╩`}
+{`██╗███╗   ██╗████████╗███████╗███╗   ██╗████████╗    ██████╗  ██╗
+██║████╗  ██║╚══██╔══╝██╔════╝████╗  ██║╚══██╔══╝   ██╔═████╗███║
+██║██╔██╗ ██║   ██║   █████╗  ██╔██╗ ██║   ██║█████╗██║██╔██║╚██║
+██║██║╚██╗██║   ██║   ██╔══╝  ██║╚██╗██║   ██║╚════╝████╔╝██║ ██║
+██║██║ ╚████║   ██║   ███████╗██║ ╚████║   ██║      ╚██████╔╝ ██║
+╚═╝╚═╝  ╚═══╝   ╚═╝   ╚══════╝╚═╝  ╚═══╝   ╚═╝       ╚═════╝  ╚═╝`}
             </pre>
           </div>
         </div>
